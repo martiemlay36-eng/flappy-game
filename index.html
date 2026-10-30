@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Oyun Salonu</title>
+<meta name="theme-color" content="#0f2027">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- OYUN SALONU (ANA SAYFA) -->
+  <div id="hub-screen" class="overlay">
+    <h1 class="hub-title">🎮 OYUN SALONU</h1>
+    <div class="game-grid">
+      <a class="game-card" href="flappy.html">
+        <span class="card-emoji">🐤</span>
+        <span class="card-name">Flappy Kuş</span>
+        <span class="card-best">🏆 Rekor: <span id="hub-flappy-best">0</span></span>
+      </a>
+      <span class="game-card soon">
+        <span class="card-emoji">🐍</span>
+        <span class="card-name">Yılan</span>
+        <span class="card-soon-badge">Yakında</span>
+      </span>
+      <span class="game-card soon">
+        <span class="card-emoji">🧱</span>
+        <span class="card-name">Tetris</span>
+        <span class="card-soon-badge">Yakında</span>
+      </span>
+      <span class="game-card soon">
+        <span class="card-emoji">🏁</span>
+        <span class="card-name">Yarış</span>
+        <span class="card-soon-badge">Yakında</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script src="hub.js"></script>
+</body>
+</html>

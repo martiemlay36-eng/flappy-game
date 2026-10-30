@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flappy Kuş</title>
+<meta name="theme-color" content="#0f2027">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD (skor) -->
+  <div id="hud" class="hidden">
+    <div id="power-badges"></div>
+    <div id="score-display">0</div>
+    <button id="pause-btn" title="Duraklat (P)">⏸</button>
+  </div>
+
+  <!-- FLAPPY MENÜ -->
+  <div id="menu-screen" class="overlay hidden">
+    <button id="back-to-hub-btn" class="back-btn">← Salon</button>
+    <h1 class="game-title">FLAPPY KUŞ</h1>
+    <p class="tagline">Boşluk tuşuna bas, uçmaya başla!</p>
+
+    <div class="skin-row">
+      <button class="skin-btn" data-skin="yellow" title="Sarı kuş"></button>
+      <button class="skin-btn" data-skin="red" title="Kırmızı kuş"></button>
+      <button class="skin-btn" data-skin="blue" title="Mavi kuş"></button>
+      <button class="skin-btn" data-skin="purple" title="Kristal kuş"></button>
+    </div>
+
+    <div class="difficulty-tabs">
+      <button class="diff-btn" data-diff="easy">Kolay</button>
+      <button class="diff-btn active" data-diff="normal">Normal</button>
+      <button class="diff-btn" data-diff="hard">Zor</button>
+    </div>
+
+    <button id="start-btn" class="big-btn">▶ BAŞLA</button>
+    <button id="mp-btn" class="small-btn mp-open-btn">🌐 Çevrimiçi Düello</button>
+
+    <div class="menu-row">
+      <button id="stats-btn" class="small-btn">📊 İstatistik</button>
+      <button id="lb-btn" class="small-btn">🏅 Skor Tablosu</button>
+    </div>
+    <div class="menu-row">
+      <button id="sound-btn" class="small-btn">🔊 Efekt: Açık</button>
+      <button id="music-btn" class="small-btn">🎵 Müzik: Açık</button>
+    </div>
+    <div class="volume-row">
+      <span>🔈</span><input type="range" id="volume-range" min="0" max="100" value="70">
+    </div>
+
+    <div id="best-score-display">🏆 Rekor: 0</div>
+  </div>
+
+  <!-- OYUN BİTTİ -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h2 class="go-title">OYUN BİTTİ</h2>
+
+    <div id="medal-display" class="hidden">
+      <div id="medal-icon">🥇</div>
+      <div id="medal-text">MADALYA</div>
+    </div>
+
+    <div class="score-panel">
+      <div class="score-row"><span>Skor</span><span id="final-score">0</span></div>
+      <div class="score-row"><span>Rekor</span><span id="best-score-go">0</span></div>
+      <div id="new-record" class="hidden">🎉 YENİ REKOR!</div>
+    </div>
+
+    <div id="name-save-row" class="hidden">
+      <input id="player-name" maxlength="12" placeholder="Adın">
+      <button id="save-score-btn">💾 Kaydet</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="retry-btn" class="big-btn">🔄 TEKRAR</button>
+      <button id="home-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <!-- DURAKLAT -->
+  <div id="pause-screen" class="overlay hidden">
+    <h2>DURAKLATILDI</h2>
+    <div class="menu-row">
+      <button id="resume-btn" class="big-btn">▶ Devam</button>
+      <button id="quit-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <!-- İSTATİSTİK -->
+  <div id="stats-screen" class="overlay hidden">
+    <h2>📊 İSTATİSTİK</h2>
+    <div class="stats-panel">
+      <div class="score-row"><span>🏆 En iyi rekor</span><span id="st-best">0</span></div>
+      <div class="score-row"><span>🎮 Toplam oyun</span><span id="st-games">0</span></div>
+      <div class="score-row"><span>⏱️ Toplam süre</span><span id="st-time">0 sn</span></div>
+      <div class="score-row"><span>🎯 Son oyunlar</span><span id="st-recent">-</span></div>
+    </div>
+    <button id="stats-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- ÇEVRİMİÇİ DÜELLO ( MULTIPLAYER ) -->
+  <div id="mp-screen" class="overlay hidden">
+    <h2 class="go-title" style="color:#00bfff">🌐 ÇEVRİMİÇİ DÜELLO</h2>
+    <p class="tagline">Arkadaşınla aynı anda oynayın — farklı cihazlarda!</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <p class="tagline" id="mp-wait-text">Arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff7b7b"></p>
+      <button id="mp-quit-btn" class="small-btn">← Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- Çevrimiçi oyun sonu -->
+  <div id="mp-gameover-screen" class="overlay hidden">
+    <h2 class="go-title">🏁 DÜELLO BİTTİ</h2>
+    <div class="score-panel">
+      <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
+      <div class="score-row"><span id="mp-opp-label">Rakip</span><span id="mp-final-opp">0</span></div>
+      <div id="mp-result-text"></div>
+    </div>
+    <div class="menu-row">
+      <button id="mp-rematch-btn" class="big-btn">🔄 Rövanş</button>
+      <button id="mp-leave-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- İlk tıklama ipucu -->
+  <div id="tap-hint" class="hidden">👆 Tıkla / Boşluk = Zıpla</div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
