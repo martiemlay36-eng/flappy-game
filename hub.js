@@ -33,7 +33,19 @@ function loadFlappy() {
   return 0;
 }
 
+function loadBest(game) {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s[game] && typeof s[game].bestScore === 'number') return s[game].bestScore;
+    }
+  } catch (e) {}
+  return 0;
+}
+
 $('hub-flappy-best').textContent = loadFlappy();
+$('hub-snake-best').textContent = loadBest('snake');
 
 // ---------- Arka plan animasyonu ----------
 let frames = 0;

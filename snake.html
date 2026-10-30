@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Yılan</title>
+<meta name="theme-color" content="#0f2027">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD (skor) -->
+  <div id="hud" class="hidden">
+    <div id="score-display">0</div>
+    <button id="pause-btn" title="Duraklat (P)">⏸</button>
+  </div>
+
+  <!-- MENÜ -->
+  <div id="menu-screen" class="overlay">
+    <button id="back-to-hub-btn" class="back-btn">← Salon</button>
+    <h1 class="game-title">🐍 YILAN</h1>
+    <p class="tagline">Yön tuşları veya kaydırma — elma ye, büyü, duvara çarpma!</p>
+
+    <div class="difficulty-tabs">
+      <button class="diff-btn" data-diff="easy">Yavaş</button>
+      <button class="diff-btn active" data-diff="normal">Normal</button>
+      <button class="diff-btn" data-diff="fast">Hızlı</button>
+    </div>
+
+    <button id="start-btn" class="big-btn">▶ BAŞLA</button>
+    <div id="best-score-display">🏆 Rekor: 0</div>
+  </div>
+
+  <!-- OYUN BİTTİ -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h2 class="go-title">OYUN BİTTİ</h2>
+
+    <div class="score-panel">
+      <div class="score-row"><span>Skor</span><span id="final-score">0</span></div>
+      <div class="score-row"><span>Rekor</span><span id="best-score-go">0</span></div>
+      <div id="new-record" class="hidden">🎉 YENİ REKOR!</div>
+    </div>
+
+    <div class="menu-row">
+      <button id="retry-btn" class="big-btn">🔄 TEKRAR</button>
+      <button id="home-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <!-- DURAKLAT -->
+  <div id="pause-screen" class="overlay hidden">
+    <h2>DURAKLATILDI</h2>
+    <div class="menu-row">
+      <button id="resume-btn" class="big-btn">▶ Devam</button>
+      <button id="quit-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <!-- İpucu -->
+  <div id="tap-hint" class="hidden">👆 Kaydır / Yön tuşları</div>
+</div>
+
+<script src="snake.js"></script>
+</body>
+</html>
