@@ -62,15 +62,6 @@
   <div id="tap-hint" class="hidden">👆 Kaydır / Yön tuşları</div>
 </div>
 
-<script>
-// Hata ayıklama: hatayı ekranda göster (test sonrası kaldırılacak)
-window.addEventListener('error', e => {
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:8px;font:13px monospace;white-space:pre-wrap;';
-  d.textContent = 'HATA: ' + e.message + ' @ ' + (e.lineno || '?');
-  document.body.appendChild(d);
-});
-</script>
 <script src="snake.js"></script>
 </body>
 </html>

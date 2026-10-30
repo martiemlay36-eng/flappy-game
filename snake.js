@@ -87,8 +87,30 @@ let frames = 0;
 let flashAlpha = 0;
 let shakeT = 0;
 let popParticles = [];
-let wallWrap = false;   // duvardan geçiş (kolay modda mı? hayır, hep çarpışma)
 let playStartMs = 0;
+let prevSnake = null;   // interpolasyon için önceki pozisyonlar
+let moveProgress = 0;   // 0..1 arası adım ilerlemesi
+let tongueT = 0;        // dil animasyonu
+let bgStars = [];
+
+function initBgStars() {
+  bgStars = [];
+  for (let i = 0; i < 60; i++) {
+    bgStars.push({
+      x: Math.random(), y: Math.random(),
+      r: 0.5 + Math.random() * 1.3,
+      tw: Math.random() * Math.PI * 2,
+      tws: 0.01 + Math.random() * 0.04
+    });
+  }
+}
+
+// anlık hız: skor arttıkça hızlanır (yumuşak eğri, üst sınır var)
+function currentStepMs() {
+  const base = 1000 / (SPEEDS[S.difficulty || 'normal'] || SPEEDS.normal);
+  const accel = 1 + Math.min(2.0, score * 0.035); // her elmada ~%3.5 hız
+  return base / accel;
+}
 
 // ---------- Yem yerleştir ----------
 function spawnFood() {
@@ -111,14 +133,16 @@ function startGame() {
   snake = [
     { x: 8, y: cy }, { x: 7, y: cy }, { x: 6, y: cy }
   ];
+  prevSnake = snake.map(s => ({ ...s }));
   dir = { x: 1, y: 0 };
   nextDir = { x: 1, y: 0 };
   score = 0;
-  stepMs = 1000 / SPEEDS[S.difficulty || 'normal'];
   stepAcc = 0;
+  moveProgress = 0;
   frames = 0;
   flashAlpha = 0;
   shakeT = 0;
+  tongueT = 0;
   popParticles = [];
   spawnFood();
 
@@ -141,6 +165,7 @@ function step() {
     if (snake[i].x === head.x && snake[i].y === head.y) { die(); return; }
   }
 
+  prevSnake = snake.map(s => ({ ...s })); // interpolasyon kaydı
   snake.unshift(head);
 
   // yem yeme
@@ -150,12 +175,12 @@ function step() {
     S.apples = (S.apples || 0) + 1;
     sfxEat();
     // yem patlama partikülleri
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 14; i++) {
       popParticles.push({
         x: boardX + (food.x + 0.5) * cell,
         y: boardY + (food.y + 0.5) * cell,
-        vx: (Math.random() - 0.5) * 3.5, vy: (Math.random() - 0.5) * 3.5 - 1,
-        life: 24, r: 2 + Math.random() * 2.5,
+        vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4 - 1.5,
+        life: 26, r: 2 + Math.random() * 3,
         color: Math.random() > 0.4 ? 'rgba(255,80,80,0.95)' : 'rgba(255,215,0,0.9)'
       });
     }
@@ -273,109 +298,231 @@ function sfxDie() { beep(220, 0.3, 'sawtooth', 0.2); setTimeout(() => beep(140, 
 
 // ---------- Çizim ----------
 function draw() {
-  // arka plan
+  // arka plan (derin uzay degradesi + yıldızlar)
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#12283f');
+  bg.addColorStop(0, '#0a1626');
+  bg.addColorStop(0.5, '#12283f');
   bg.addColorStop(1, '#1b3a52');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
+  bgStars.forEach(s => {
+    ctx.globalAlpha = 0.25 + 0.55 * Math.abs(Math.sin(s.tw));
+    ctx.fillStyle = '#cfe8ff';
+    ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
   ctx.save();
   if (shakeT > 0) {
     shakeT -= 0.03;
-    const m = shakeT * 7;
+    const m = shakeT * 8;
     ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
   }
 
-  // tahta çerçevesi
-  ctx.strokeStyle = 'rgba(0,191,255,0.35)';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(boardX - 4, boardY - 4, boardSize + 8, boardSize + 8);
+  // tahta: ışıma + çift çerçeve
+  const glow = ctx.createRadialGradient(W/2, boardY + boardSize/2, boardSize * 0.2, W/2, boardY + boardSize/2, boardSize * 0.85);
+  glow.addColorStop(0, 'rgba(0,191,255,0.10)');
+  glow.addColorStop(1, 'rgba(0,191,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(0,191,255,0.55)';
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(boardX - 5, boardY - 5, boardSize + 10, boardSize + 10);
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(boardX - 9, boardY - 9, boardSize + 18, boardSize + 18);
 
-  // damalı zemin
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.10)';
-      ctx.fillRect(boardX + x * cell, boardY + y * cell, cell, cell);
+  // zemin: degrade + ince grid
+  const fld = ctx.createLinearGradient(boardX, boardY, boardX, boardY + boardSize);
+  fld.addColorStop(0, 'rgba(16,40,58,0.95)');
+  fld.addColorStop(1, 'rgba(10,26,40,0.95)');
+  ctx.fillStyle = fld;
+  ctx.fillRect(boardX, boardY, boardSize, boardSize);
+  ctx.strokeStyle = 'rgba(0,191,255,0.07)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < GRID; i++) {
+    ctx.beginPath(); ctx.moveTo(boardX + i * cell, boardY); ctx.lineTo(boardX + i * cell, boardY + boardSize); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(boardX, boardY + i * cell); ctx.lineTo(boardX + boardSize, boardY + i * cell); ctx.stroke();
+  }
+  // köşe vurguları
+  ctx.strokeStyle = 'rgba(0,191,255,0.5)';
+  ctx.lineWidth = 3;
+  const cl = cell * 0.9;
+  [[0,0,1,1],[1,0,-1,1],[0,1,1,-1],[1,1,-1,-1]].forEach(([cx, cy, dx, dy]) => {
+    const px = boardX + cx * boardSize, py = boardY + cy * boardSize;
+    ctx.beginPath();
+    ctx.moveTo(px + dx * cl, py);
+    ctx.lineTo(px, py);
+    ctx.lineTo(px, py + dy * cl);
+    ctx.stroke();
+  });
+
+  // yem: altın elma (nabız + parlama)
+  if (food) {
+    const pr = cell * 0.34 * (1 + 0.12 * Math.sin(foodPulse));
+    const fx = boardX + (food.x + 0.5) * cell;
+    const fy = boardY + (food.y + 0.5) * cell;
+    const g = ctx.createRadialGradient(fx, fy, 1, fx, fy, cell * 0.9);
+    g.addColorStop(0, 'rgba(255,120,60,0.55)');
+    g.addColorStop(0.5, 'rgba(255,60,60,0.22)');
+    g.addColorStop(1, 'rgba(255,60,60,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(fx - cell, fy - cell, cell * 2, cell * 2);
+    // gövde (degrade)
+    const fb = ctx.createRadialGradient(fx - pr * 0.3, fy - pr * 0.4, pr * 0.1, fx, fy, pr);
+    fb.addColorStop(0, '#ff9e80');
+    fb.addColorStop(0.55, '#e8384f');
+    fb.addColorStop(1, '#a01830');
+    ctx.fillStyle = fb;
+    ctx.beginPath(); ctx.arc(fx, fy, pr, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.arc(fx - pr * 0.32, fy - pr * 0.38, pr * 0.26, 0, Math.PI * 2); ctx.fill();
+    // sap + yaprak
+    ctx.strokeStyle = '#8a5a21'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(fx, fy - pr); ctx.quadraticCurveTo(fx + 2, fy - pr - 3, fx + 4, fy - pr - 5); ctx.stroke();
+    ctx.fillStyle = '#6ecf68';
+    ctx.beginPath(); ctx.ellipse(fx + 6, fy - pr - 5, 5, 2.4, -0.55, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // yılan: kesintisiz gövde (interpolasyonlu) + pul deseni
+  const n = snake.length;
+  const prog = state === STATE.PLAYING ? moveProgress : 0;
+
+  // gövdeyi baştan sona path olarak çiz — segment merkezleri interpolasyonlu
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const cur = snake[i];
+    const prev = prevSnake && prevSnake[i] ? prevSnake[i] : cur;
+    // yeni segment (kafa) prev'de yok — 1. segmentten kaydır
+    const ref = i === 0 && prevSnake && prevSnake[0] ? prevSnake[0] : prev;
+    const ix = cur.x + (ref.x - cur.x) * (1 - prog);
+    const iy = cur.y + (ref.y - cur.y) * (1 - prog);
+    pts.push({
+      x: boardX + (ix + 0.5) * cell,
+      y: boardY + (iy + 0.5) * cell
+    });
+  }
+
+  // dış hat (koyu kontur) — kalın çizgi
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    if (pass === 0) {
+      // kontur
+      ctx.strokeStyle = 'rgba(8,30,18,0.9)';
+      ctx.lineWidth = cell * 0.82;
+    } else {
+      // gövde degrade — baştan kuyruğa renk geçişi tek path'te olmaz, segment segment çiz
+      ctx.lineWidth = cell * 0.66;
+    }
+    for (let i = n - 1; i > 0; i--) {
+      const t = i / Math.max(1, n - 1);
+      if (pass === 1) {
+        const c = ctx.createLinearGradient(pts[i].x, pts[i].y, pts[i-1].x, pts[i-1].y);
+        const r1 = Math.round(70 - t * 26), g1 = Math.round(225 - t * 80), b1 = Math.round(105 - t * 30);
+        c.addColorStop(0, `rgb(${r1},${g1},${b1})`);
+        c.addColorStop(1, `rgb(${r1-18},${g1-30},${b1-14})`);
+        ctx.strokeStyle = c;
+      }
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i-1].x, pts[i-1].y);
+      ctx.stroke();
     }
   }
 
-  // yem (elma, nabız atan)
-  if (food) {
-    foodPulse += 0.1;
-    const pr = cell * 0.32 * (1 + 0.1 * Math.sin(foodPulse));
-    const fx = boardX + (food.x + 0.5) * cell;
-    const fy = boardY + (food.y + 0.5) * cell;
-    // glow
-    const g = ctx.createRadialGradient(fx, fy, 1, fx, fy, cell * 0.8);
-    g.addColorStop(0, 'rgba(255,80,80,0.5)');
-    g.addColorStop(1, 'rgba(255,80,80,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(fx - cell * 0.8, fy - cell * 0.8, cell * 1.6, cell * 1.6);
-    // gövde
-    ctx.fillStyle = '#e8384f';
-    ctx.beginPath(); ctx.arc(fx, fy, pr, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath(); ctx.arc(fx - pr * 0.3, fy - pr * 0.35, pr * 0.32, 0, Math.PI * 2); ctx.fill();
-    // sap
-    ctx.strokeStyle = '#7a4a21'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(fx, fy - pr); ctx.lineTo(fx + 3, fy - pr - 4); ctx.stroke();
-    // yaprak
-    ctx.fillStyle = '#6ecf68';
-    ctx.beginPath(); ctx.ellipse(fx + 5, fy - pr - 4, 4.5, 2.2, -0.5, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // yılan (yumuşak gövde + göz)
-  const n = snake.length;
-  snake.forEach((seg, i) => {
-    const t = i / Math.max(1, n - 1); // 0 = kafa, 1 = kuyruk
-    const x = boardX + seg.x * cell;
-    const y = boardY + seg.y * cell;
-    const inset = cell * 0.08 + t * cell * 0.14;
-    const body = ctx.createLinearGradient(x, y, x + cell, y + cell);
-    const headCol = i === 0 ? '#7CFF9E' : null;
-    const base = i === 0
-      ? [92, 230, 120]
-      : [Math.round(60 - t * 20), Math.round(200 - t * 70), Math.round(90 - t * 25)];
-    body.addColorStop(0, `rgb(${base[0]+25},${base[1]+25},${base[2]+25})`);
-    body.addColorStop(1, `rgb(${base[0]},${base[1]},${base[2]})`);
-    ctx.fillStyle = body;
-    // yuvarlatılmış kare
-    const r = cell * 0.28;
-    const xx = x + inset, yy = y + inset, ww = cell - inset * 2;
+  // sırt deseni: pul zinciri
+  ctx.fillStyle = 'rgba(20,90,50,0.55)';
+  for (let i = 2; i < n; i += 2) {
+    const t = i / n;
+    const pr2 = cell * (0.30 - t * 0.12);
     ctx.beginPath();
-    ctx.moveTo(xx + r, yy);
-    ctx.arcTo(xx + ww, yy, xx + ww, yy + ww, r);
-    ctx.arcTo(xx + ww, yy + ww, xx, yy + ww, r);
-    ctx.arcTo(xx, yy + ww, xx, yy, r);
-    ctx.arcTo(xx, yy, xx + ww, yy, r);
-    ctx.closePath();
+    ctx.ellipse(pts[i].x, pts[i].y, pr2 * 0.8, pr2, 0, 0, Math.PI * 2);
     ctx.fill();
-  });
+  }
+  // karın highlight
+  ctx.strokeStyle = 'rgba(190,255,200,0.18)';
+  ctx.lineWidth = cell * 0.16;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    if (i === 0) ctx.moveTo(pts[i].x, pts[i].y + cell * 0.14);
+    else ctx.lineTo(pts[i].x, pts[i].y + cell * 0.14);
+  }
+  ctx.stroke();
 
-  // kafa gözleri + dil
-  if (snake.length) {
-    const h = snake[0];
-    const hx = boardX + (h.x + 0.5) * cell;
-    const hy = boardY + (h.y + 0.5) * cell;
-    const er = cell * 0.11;
-    const off = cell * 0.16;
-    const px = dir.y !== 0 ? off : 0; // dikey hareketken gözler yana
-    const py = dir.x !== 0 ? off : 0;
+  // kafa: gözler + çatal dil
+  if (n) {
+    const h = pts[0];
+    const ang = Math.atan2(dir.y, dir.x);
+    ctx.save();
+    ctx.translate(h.x, h.y);
+    ctx.rotate(ang);
+    // kafa biraz büyük
+    ctx.fillStyle = 'rgb(105,245,135)';
+    ctx.strokeStyle = 'rgba(8,30,18,0.9)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, cell * 0.46, cell * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    // parlama
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(-cell * 0.1, -cell * 0.12, cell * 0.2, cell * 0.12, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    // dil (periyodik çıkıp girer)
+    const tongue = Math.max(0, Math.sin(tongueT)) * cell * 0.5;
+    if (tongue > 2) {
+      ctx.strokeStyle = '#ff5252';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cell * 0.4, 0);
+      ctx.lineTo(cell * 0.4 + tongue * 0.6, 0);
+      ctx.lineTo(cell * 0.4 + tongue, -cell * 0.10);
+      ctx.moveTo(cell * 0.4 + tongue * 0.6, 0);
+      ctx.lineTo(cell * 0.4 + tongue, cell * 0.10);
+      ctx.stroke();
+    }
+    // gözler (öne bakan)
+    const eo = cell * 0.17;
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(hx - (dir.x !== 0 ? dir.x * off * 0.4 : off), hy - off + py * 0, er, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(hx + (dir.x !== 0 ? dir.x * off * 0.4 + off : off), hy + off, er, 0, Math.PI * 2); ctx.fill();
-    // bebekler
-    ctx.fillStyle = '#111';
-    ctx.beginPath(); ctx.arc(hx - (dir.x !== 0 ? dir.x * off * 0.4 : off) + dir.x * er * 0.4, hy - off + dir.y * er * 0.4, er * 0.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(hx + (dir.x !== 0 ? dir.x * off * 0.4 + off : off) + dir.x * er * 0.4, hy + off + dir.y * er * 0.4, er * 0.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cell * 0.16, -eo, cell * 0.13, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cell * 0.16, eo, cell * 0.13, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath(); ctx.arc(cell * 0.2, -eo, cell * 0.06, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cell * 0.2, eo, cell * 0.06, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath(); ctx.arc(cell * 0.19, -eo - 1, cell * 0.025, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cell * 0.19, eo - 1, cell * 0.025, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
-  // partiküller
+  // hız göstergesi (sağ üstte küçük bar)
+  if (state === STATE.PLAYING || state === STATE.READY) {
+    const spd = Math.min(1, (currentStepMs() < 1000/SPEEDS[S.difficulty||'normal'] ? 1 - (currentStepMs() / (1000/SPEEDS[S.difficulty||'normal'])) : 0));
+    const barW = 54, barH = 5;
+    const bx = boardX + boardSize - barW, by = boardY - 16;
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(bx, by, barW, barH);
+    const sg = ctx.createLinearGradient(bx, 0, bx + barW, 0);
+    sg.addColorStop(0, '#7CFF9E');
+    sg.addColorStop(1, '#ff5252');
+    ctx.fillStyle = sg;
+    ctx.fillRect(bx, by, barW * Math.max(0.05, spd), barH);
+    ctx.font = '700 9px "Segoe UI", Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('HIZ', bx - 26, by + 5);
+  }
+
+  // partiküller (glow'lu)
   popParticles.forEach(pt => {
-    ctx.globalAlpha = Math.min(1, pt.life / 24);
-    ctx.fillStyle = pt.color;
-    ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill();
+    const a = Math.min(1, pt.life / 24);
+    const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r * 2.2);
+    g.addColorStop(0, pt.color);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = a;
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r * 2.2, 0, Math.PI * 2); ctx.fill();
   });
   ctx.globalAlpha = 1;
 
@@ -383,19 +530,27 @@ function draw() {
 
   // hazır ipucu
   if (state === STATE.READY) {
+    const bob = Math.sin(frames * 0.08) * 3;
     ctx.font = '800 17px "Segoe UI", Arial';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.fillText('Yön tuşu / kaydır → başla', W / 2, boardY - 18);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText('Yön tuşu / kaydır → başla', W / 2 + 1, boardY - 24 + bob + 1);
+    ctx.fillStyle = '#9fe8ff';
+    ctx.fillText('Yön tuşu / kaydır → başla', W / 2, boardY - 24 + bob);
     ctx.textAlign = 'left';
   }
 
-  // flaş
+  // flaş + vinyet
   if (flashAlpha > 0) {
     flashAlpha = Math.max(0, flashAlpha - 0.04);
     ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
     ctx.fillRect(0, 0, W, H);
   }
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,10,25,0.45)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
 }
 
 // ---------- Ana döngü ----------
@@ -413,9 +568,16 @@ function loop(now) {
     frames++;
     foodPulse += 0; // (draw'da artıyor)
     if (state === STATE.PLAYING) {
+      const ms = currentStepMs();
       stepAcc += STEP_MS;
-      if (stepAcc >= stepMs) { stepAcc = 0; step(); }
+      moveProgress = Math.min(1, stepAcc / ms);
+      if (stepAcc >= ms) { stepAcc = 0; moveProgress = 0; step(); }
+      tongueT += 0.08;
+    } else {
+      moveProgress = 0;
     }
+    bgStars.forEach(s => { s.tw += s.tws; });
+    foodPulse += 0.09;
     popParticles.forEach(pt => { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.12; pt.life--; });
     popParticles = popParticles.filter(pt => pt.life > 0);
   }
@@ -450,7 +612,7 @@ function init() {
     b.classList.toggle('active', b.dataset.diff === S.difficulty);
   });
   $('best-score-display').textContent = `🏆 Rekor: ${S.bestScore}`;
-
+  initBgStars();
   requestAnimationFrame(loop);
 }
 
