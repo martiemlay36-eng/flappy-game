@@ -124,6 +124,9 @@ function mulberry32(a) {
 }
 let rng = Math.random;
 function seedRng(s) { rng = mulberry32(s); }
+let foodSeq = 0;       // kaçıncı yem (MP senkronu)
+let oppFoodSeq = 0;    // rakibin yediği yem sırası
+let pendingEaten = []; // rakibin yediği yem konumları (uygulanacak)
 
 function spawnFood() {
   let tries = 0;
@@ -151,24 +154,27 @@ function startGame(isMP) {
     rng = Math.random;
   }
 
-  // MP'de guest sağdan sola başlar (çakışma olmasın)
+  // MP'de guest sağ uçtan sola başlar (host'la çakışma olmasın)
   const isGuest = isMP && MP.connected && !MP.isHost;
   const cy = Math.floor(GRID / 2);
   if (isGuest) {
     snake = [
-      { x: GRID - 9, y: cy }, { x: GRID - 8, y: cy }, { x: GRID - 7, y: cy }
+      { x: GRID - 1, y: cy }, { x: GRID - 2, y: cy }, { x: GRID - 3, y: cy }
     ];
     dir = { x: -1, y: 0 };
     nextDir = { x: -1, y: 0 };
   } else {
     snake = [
-      { x: 8, y: cy }, { x: 7, y: cy }, { x: 6, y: cy }
+      { x: 0, y: cy }, { x: 1, y: cy }, { x: 2, y: cy }
     ];
     dir = { x: 1, y: 0 };
     nextDir = { x: 1, y: 0 };
   }
   dirQueue = [];
   prevSnake = snake.map(s => ({ ...s }));
+  foodSeq = 0;
+  oppFoodSeq = 0;
+  pendingEaten = [];
   score = 0;
   stepAcc = 0;
   moveProgress = 0;
@@ -227,6 +233,9 @@ function step() {
       });
     }
     spawnFood();
+    // MP: rakibe "ben bu yemi yedim" bildir (sıra no ile)
+    if (MP.connected) mpSend({ t: 'eat', i: foodSeq });
+    foodSeq++;
   } else {
     snake.pop(); // kuyruğu kırp
   }
@@ -623,6 +632,9 @@ function draw() {
     ctx.fillText('HIZ', bx - 26, by + 5);
   }
 
+  // rakip yılanı (çevrimiçi) — kendi yılanından ÖNCE çiz (arkada kalsın)
+  if (MP.connected && MP.oppSnake && MP.oppSnake.length) drawOpponentSnake();
+
   // partiküller (glow'lu)
   popParticles.forEach(pt => {
     const a = Math.min(1, pt.life / 24);
@@ -634,9 +646,6 @@ function draw() {
     ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r * 2.2, 0, Math.PI * 2); ctx.fill();
   });
   ctx.globalAlpha = 1;
-
-  // rakip yılanı (çevrimiçi) — kendi yılanından sonra çiz
-  if (MP.connected && MP.oppSnake && MP.oppSnake.length) drawOpponentSnake();
 
   ctx.restore();
 
@@ -692,6 +701,7 @@ function loop(now) {
       moveProgress = 0;
     }
     mpTick();
+    if (oppAnim < 1) oppAnim += 0.06; // rakip yılanı yumuşatma ilerlemesi
     bgStars.forEach(s => { s.tw += s.tws; });
     foodPulse += 0.09;
     popParticles.forEach(pt => { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.12; pt.life--; });
@@ -851,10 +861,19 @@ function setupConn() {
         }
         break;
       case 'snake':
-        // rakibin yılanı (compact: segment listesi)
-        MP.oppSnake = data.s;      // [[x,y], ...]
+        // rakibin yılanı (compact: segment listesi) — interpolasyon kaydı
+        storeOppFrame(data.s);
         MP.oppScore = data.sc;
         MP.oppAlive = data.a;
+        break;
+      case 'eat':
+        // rakip yem yedi — kafası yemin üstündeyse bizdeki yemi de yenile
+        if (food && MP.oppSnake && MP.oppSnake.length) {
+          const oh = MP.oppSnake[0];
+          if (oh && oh[0] === food.x && oh[1] === food.y) {
+            spawnFood();
+          }
+        }
         break;
       case 'gameover':
         MP.oppScore = data.s;
@@ -983,17 +1002,56 @@ function mpTick() {
   });
 }
 
-// rakip yılanını çiz (mavi tonlarda, yarı saydam)
+// rakip yılanı: interpolasyonlu akıcı hareket (mavi tonlarda)
+// son iki konum arası yumuşatma — keskin zıplama yok
+let oppPrev = null;    // önceki gelen segment listesi
+let oppAnim = 1;       // 0→1 yumuşatma ilerlemesi
+
+function storeOppFrame(segs) {
+  oppPrev = MP.oppSnake;
+  MP.oppSnake = segs;
+  oppAnim = 0;
+}
+
+function oppDisplayPts() {
+  // önceki ve şimdiki konumlar arasında lerp
+  const cur = MP.oppSnake || [];
+  const prev = oppPrev || cur;
+  const alpha = Math.min(1, oppAnim);
+  const pts = [];
+  for (let i = 0; i < cur.length; i++) {
+    const c = cur[i];
+    const p = prev[i] || c;
+    // yeni kafa (prev[0] yoksa prev[1]'den kayar)
+    const ref = (i === 0 && prev.length && cur.length > prev.length) ? prev[0] : p;
+    const ix = c[0] + (ref[0] - c[0]) * (1 - alpha);
+    const iy = c[1] + (ref[1] - c[1]) * (1 - alpha);
+    pts.push({ x: boardX + (ix + 0.5) * cell, y: boardY + (iy + 0.5) * cell });
+  }
+  return pts;
+}
+
 function drawOpponentSnake() {
   if (!MP.oppSnake || !MP.oppSnake.length) return;
-  const pts = MP.oppSnake.map(([x, y]) => ({
-    x: boardX + (x + 0.5) * cell,
-    y: boardY + (y + 0.5) * cell
-  }));
+  const pts = oppDisplayPts();
   const n2 = pts.length;
-  // kontur + gövde
+  const dead = !MP.oppAlive;
+
+  ctx.save();
+  if (dead) {
+    ctx.globalAlpha = 0.35;
+    // gri tonlama: overlay ile
+  }
+
+  // dış ışıma (ölü değilse)
+  if (!dead) {
+    ctx.shadowColor = 'rgba(64,164,255,0.8)';
+    ctx.shadowBlur = 12;
+  }
+
+  // kontur
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.strokeStyle = 'rgba(10,20,50,0.75)';
+  ctx.strokeStyle = dead ? 'rgba(30,40,60,0.8)' : 'rgba(10,25,60,0.85)';
   ctx.lineWidth = cell * 0.78;
   ctx.beginPath();
   for (let i = 0; i < n2; i++) {
@@ -1001,12 +1059,20 @@ function drawOpponentSnake() {
   }
   if (n2 === 1) ctx.lineTo(pts[0].x + 0.1, pts[0].y);
   ctx.stroke();
+
+  // gövde: segment segment degrade
   for (let i = n2 - 1; i > 0; i--) {
     const t = i / Math.max(1, n2 - 1);
     const c = ctx.createLinearGradient(pts[i].x, pts[i].y, pts[i-1].x, pts[i-1].y);
-    const r1 = Math.round(70 - t * 20), g1 = Math.round(150 - t * 40), b1 = Math.round(235 - t * 30);
-    c.addColorStop(0, `rgb(${r1},${g1},${b1})`);
-    c.addColorStop(1, `rgb(${r1-15},${g1-25},${b1-15})`);
+    if (dead) {
+      const v = Math.round(110 - t * 30);
+      c.addColorStop(0, `rgb(${v},${v},${v+10})`);
+      c.addColorStop(1, `rgb(${v-20},${v-20},${v-10})`);
+    } else {
+      const r1 = Math.round(70 - t * 20), g1 = Math.round(150 - t * 40), b1 = Math.round(235 - t * 30);
+      c.addColorStop(0, `rgb(${r1},${g1},${b1})`);
+      c.addColorStop(1, `rgb(${r1-15},${g1-25},${b1-15})`);
+    }
     ctx.strokeStyle = c;
     ctx.lineWidth = cell * 0.6;
     ctx.beginPath();
@@ -1014,15 +1080,62 @@ function drawOpponentSnake() {
     ctx.lineTo(pts[i-1].x, pts[i-1].y);
     ctx.stroke();
   }
-  // kafa
+  ctx.shadowBlur = 0;
+
+  // pul deseni
+  ctx.fillStyle = dead ? 'rgba(50,60,70,0.5)' : 'rgba(20,60,130,0.5)';
+  for (let i = 2; i < n2; i += 2) {
+    const t = i / n2;
+    const pr2 = cell * (0.28 - t * 0.10);
+    ctx.beginPath();
+    ctx.ellipse(pts[i].x, pts[i].y, pr2 * 0.8, pr2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // kafa + gözler
   if (n2) {
-    ctx.fillStyle = 'rgb(90,170,245)';
-    ctx.strokeStyle = 'rgba(10,20,50,0.8)';
+    ctx.fillStyle = dead ? 'rgb(120,130,140)' : 'rgb(90,170,245)';
+    ctx.strokeStyle = dead ? 'rgba(30,40,60,0.9)' : 'rgba(10,25,60,0.9)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(pts[0].x, pts[0].y, cell * 0.4, 0, Math.PI * 2);
+    ctx.arc(pts[0].x, pts[0].y, cell * 0.42, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
+    if (!dead) {
+      // gözler
+      const eo = cell * 0.14;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(pts[0].x - eo, pts[0].y - eo, cell * 0.09, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(pts[0].x + eo, pts[0].y - eo, cell * 0.09, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#c0392b';
+      ctx.beginPath(); ctx.arc(pts[0].x - eo, pts[0].y - eo, cell * 0.045, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(pts[0].x + eo, pts[0].y - eo, cell * 0.045, 0, Math.PI * 2); ctx.fill();
+      // parlama
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath(); ctx.ellipse(pts[0].x - cell * 0.08, pts[0].y - cell * 0.1, cell * 0.14, cell * 0.08, -0.4, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // X gözler
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 1.5;
+      const ex = cell * 0.12;
+      [[-1,-1],[1,-1]].forEach(([sx, sy]) => {
+        const cx = pts[0].x + sx * cell * 0.14, cy2 = pts[0].y + sy * cell * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(cx - ex, cy2 - ex); ctx.lineTo(cx + ex, cy2 + ex);
+        ctx.moveTo(cx + ex, cy2 - ex); ctx.lineTo(cx - ex, cy2 + ex);
+        ctx.stroke();
+      });
+    }
+    // isim etiketi
+    ctx.font = '700 10px "Segoe UI", Arial';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillText('RAKİP', pts[0].x + 1, pts[0].y - cell * 0.62 + 1);
+    ctx.fillStyle = dead ? '#9fb8d1' : '#7ec8ff';
+    ctx.fillText('RAKİP', pts[0].x, pts[0].y - cell * 0.62);
+    ctx.textAlign = 'left';
   }
+
+  ctx.restore();
 }
 
 // ---------- MP butonları ----------
