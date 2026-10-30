@@ -290,8 +290,8 @@ function beginPlay() {
 }
 
 function flap() {
-  if (MP.connected) return; // çevrimiçi modda geri sayım senkronu var, elle başlatma yok
   if (state !== STATE.PLAYING && state !== STATE.READY) return;
+  if (MP.connected && state === STATE.READY) return; // geri sayım sırasında elle başlatma yok
   if (state === STATE.READY) beginPlay();
   bird.vy = DIFFICULTIES[currentDiff].flapSpeed;
   bird.wingDir = -1;
