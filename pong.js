@@ -221,26 +221,26 @@ function scoreL() {
   scL++;
   scoreFlashL = 1;
   sfx.score();
-  spawnGoalParticles(W - 30, ball.y, '#00ffcc');
+  spawnGoalParticles(W - 30, H / 2, '#00ffcc');
   updateScoreUI();
   if (scL >= WIN_SCORE) { endGame(true); return; }
   state = STATE.READY;
   serveCountdown = 60; // 1 sn
   serveTo = -1;        // rakibe servis
-  resetBall(-1);
+  resetBall(-1);       // TOPU HEMEN MERKEZE AL — bug düzeltmesi
 }
 
 function scoreR() {
   scR++;
   scoreFlashR = 1;
   sfx.score();
-  spawnGoalParticles(30, ball.y, '#ff5252');
+  spawnGoalParticles(30, H / 2, '#ff5252');
   updateScoreUI();
   if (scR >= WIN_SCORE) { endGame(false); return; }
   state = STATE.READY;
   serveCountdown = 60;
   serveTo = 1;
-  resetBall(1);
+  resetBall(1);        // TOPU HEMEN MERKEZE AL — bug düzeltmesi
 }
 
 function endGame(won) {
@@ -496,7 +496,7 @@ function setupConn() {
         MP.oppReady = true;
         break;
       case 'ball':
-        // host -> guest: top durumu + skorlar
+        // host -> guest: top durumu + skorlar + state
         if (!MP.isHost) {
           ball.x = data.x; ball.y = data.y;
           ball.vx = data.vx; ball.vy = data.vy;
@@ -506,6 +506,11 @@ function setupConn() {
             if (data.sr > scR) { scoreFlashR = 1; sfx.score(); }
             scL = data.sl; scR = data.sr;
             updateScoreUI();
+          }
+          // state senkronu: host PLAYING ise guest de PLAYING
+          if (typeof data.st === 'number') {
+            if (data.st === 3 && state === STATE.READY) state = STATE.PLAYING;
+            else if (data.st === 1 && state === STATE.PLAYING) state = STATE.READY;
           }
         }
         break;
@@ -560,39 +565,36 @@ function mpCountdownTick() {
   }
 }
 
-// guest kendi topunu simüle ETMEZ — host'un topunu alır.
 // MP fizik adımı: sadece host topu hareket ettirir.
 function mpStepPhysics() {
   if (MP.isHost) {
     // guest'in raketini uygula (sağ raket)
     right.y = MP.oppY;
-    stepBall();
-    // top durumunu gönder
+    if (state === STATE.PLAYING) {
+      stepBall();
+      mpOnScoreCheck();
+    }
+    // top durumunu gönder (PLAYING + READY — servis anında da)
     if (frames % 2 === 0) {
       mpSend({
         t: 'ball',
         x: Math.round(ball.x * 10) / 10, y: Math.round(ball.y * 10) / 10,
         vx: Math.round(ball.vx * 10) / 10, vy: Math.round(ball.vy * 10) / 10,
-        sl: scL, sr: scR
+        sl: scL, sr: scR,
+        st: state === STATE.PLAYING ? 3 : 1 // guest state senkronu
       });
     }
   } else {
-    // guest: top host'tan gelir, raket çarpışmasını yerel tahmin et (isteğe bağlı)
-    // sadece kendi sol raketini yönet ve gönder
+    // guest: top host'tan gelir, sadece kendi sol raketini yönet
     right.y = MP.oppY;
   }
 }
 
-// skor değişimini host iletmek zorunda (tek gerçek)
-function mpOnScore() {
-  // host tarafında scoreL/scoreR zaten çalışır
-  if (MP.isHost) {
-    // top durum mesajı her frame gittiği için skor otomatik senkron
-    // maç bitti mi kontrol et
-    if (scL >= WIN_SCORE || scR >= WIN_SCORE) {
-      mpSend({ t: 'end', sl: scL, sr: scR });
-      mpMatchEnd(scL, scR);
-    }
+// host: maç bitti mi kontrol + bildir
+function mpOnScoreCheck() {
+  if (scL >= WIN_SCORE || scR >= WIN_SCORE) {
+    mpSend({ t: 'end', sl: scL, sr: scR });
+    mpMatchEnd(scL, scR);
   }
 }
 
@@ -884,8 +886,18 @@ function loop(now) {
     } else if (state === STATE.READY) {
       humanMove();
       if (MP.connected) {
-        mpCountdownTick();
-        mpPadTick();
+        if (MP.isHost) {
+          // host: servis geri sayımını yönet
+          if (mpCountdown > 0) mpCountdownTick();
+          else if (serveCountdown > 0) {
+            serveCountdown--;
+            if (serveCountdown === 0) state = STATE.PLAYING;
+          } else state = STATE.PLAYING;
+          mpStepPhysics(); // top durumunu (resetTop dahil) göndermeye devam
+        } else {
+          // guest: host'un top dururumunu al, geri sayım host'tan
+          mpPadTick();
+        }
       } else {
         if (serveCountdown > 0) {
           serveCountdown--;
