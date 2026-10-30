@@ -1306,8 +1306,9 @@ function setupConn() {
         }
         break;
       case 'rematch':
+        // rakip rövanş istedi — sadece host maçı yeniden başlatır
         MP.oppRematch = true;
-        if (MP.rematchVotes > 0) mpDoRematch();
+        if (MP.isHost && MP.rematchVotes > 0) mpBeginMatch();
         break;
     }
   });
@@ -1380,12 +1381,9 @@ function mpFinishDuel() {
 }
 
 function mpDoRematch() {
-  hide(mpGameoverScreen);
+  // host: her iki taraf onayladıysa yeni maç başlat
+  if (!MP.isHost) return;
   mpBeginMatch();
-  MP.oppAlive = true;
-  MP.oppScore = 0;
-  MP.oppRematch = false;
-  MP.rematchVotes = 0;
 }
 
 function mpLeave() {
@@ -1409,6 +1407,11 @@ function mpBeginMatch() {
   startGame();
   mpStartMatchUI();
   mpCountdown = 3 * 60; // 60 fps x 3 saniye
+  // rövanş durumlarını sıfırla
+  MP.oppAlive = true;
+  MP.oppScore = 0;
+  MP.oppRematch = false;
+  MP.rematchVotes = 0;
 }
 
 // geri sayım her frame azalır, bitince oyun eşzamanlı başlar
@@ -1479,8 +1482,14 @@ $('mp-rematch-btn').addEventListener('click', () => {
   if (!MP.connected) { mpLeave(); return; }
   MP.rematchVotes = 1;
   mpSend({ t: 'rematch' });
-  if (MP.oppRematch) mpDoRematch();
-  $('mp-result-text').textContent = 'Rakibin onayı bekleniyor...';
+  if (MP.isHost) {
+    // host: rakip de istiyorsa hemen başlat
+    if (MP.oppRematch) mpBeginMatch();
+  }
+  // guest: host'un match mesajını bekler
+  $('mp-result-text').textContent = MP.isHost
+    ? (MP.oppRematch ? 'Başlıyor!' : 'Rakibin onayı bekleniyor...')
+    : 'Host başlatacak — onay bekleniyor...';
 });
 $('mp-leave-btn').addEventListener('click', mpLeave);
 
