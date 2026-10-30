@@ -237,12 +237,6 @@ function initClouds() {
 function startGame() {
   // çevrimiçi modda: host'la aynı tohum ve zorluk (deterministik senkron)
   if (MP.connected) {
-    if (MP.isHost) {
-      MP.seed = Math.floor(Math.random() * 1e9);
-      MP.matchDiff = F.difficulty;
-      // tohum + zorluğu rakibe bildir (ilk bağlantı ve her rövanş)
-      mpSend({ t: 'hello', skin: F.skin, seed: MP.seed, diff: F.difficulty });
-    }
     seedRng(MP.seed || 1);
     currentDiff = MP.matchDiff || F.difficulty;
   } else {
@@ -280,7 +274,8 @@ function startGame() {
 
   scoreDisplay.textContent = '0';
   powerBadges.innerHTML = '';
-  show(hud); show(tapHint);
+  if (MP.connected) hide(tapHint); else show(tapHint);
+  show(hud);
   hide(menuScreen); hide(gameoverScreen); hide(pauseScreen); hide(statsScreen);
   hide(mpScreen); hide(mpGameoverScreen);
 
@@ -295,6 +290,7 @@ function beginPlay() {
 }
 
 function flap() {
+  if (MP.connected) return; // çevrimiçi modda geri sayım senkronu var, elle başlatma yok
   if (state !== STATE.PLAYING && state !== STATE.READY) return;
   if (state === STATE.READY) beginPlay();
   bird.vy = DIFFICULTIES[currentDiff].flapSpeed;
@@ -731,6 +727,9 @@ function draw() {
     drawOpponentBird();
   }
 
+  // --- Geri sayım (çevrimiçi) ---
+  if (MP.connected) mpDrawCountdown();
+
   // --- Ekran flaşı + vinyet ---
   if (flashAlpha > 0) {
     ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
@@ -987,6 +986,7 @@ function loop(now) {
     if (state === STATE.MENU) menuUpdate();
     else if (state === STATE.MP) menuUpdate();
     else if (state !== STATE.PAUSED) {
+      mpCountdownTick();
       update();
       mpTick();
     }
@@ -1198,6 +1198,7 @@ function mpHost() {
   show($('mp-host-area'));
   $('mp-room-code').textContent = '...';
   $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
+  mpHelloFromGuest = false;
 
   MP.roomCode = mpMakeRoomCode();
   MP.isHost = true;
@@ -1252,10 +1253,21 @@ function mpJoinConfirm() {
 }
 
 // ---------- Ortak bağlantı kurulumu ----------
+let mpHelloFromGuest = false;
+
 function setupConn() {
   MP.conn.on('open', () => {
     MP.connected = true;
     mpSend({ t: 'hello', skin: F.skin });
+    // host: open sinyali guest'ten gelmese bile 3 sn sonra maçı başlat
+    if (MP.isHost) {
+      setTimeout(() => {
+        if (MP.connected && !mpHelloFromGuest) {
+          mpHelloFromGuest = true;
+          mpBeginMatch();
+        }
+      }, 3000);
+    }
   });
 
   MP.conn.on('data', data => {
@@ -1263,16 +1275,20 @@ function setupConn() {
     switch (data.t) {
       case 'hello':
         MP.oppBird.skin = data.skin || 'yellow';
-        if (MP.isHost) {
-          // guest katildi: host oyunu baslatir (seed'i uretip gonderir)
-          startGame();
-          mpStartMatchUI();
-        } else if (typeof data.seed === 'number') {
-          // host'tan gelen esitleme: ayni tohum + zorlukla basla
+        if (MP.isHost && !mpHelloFromGuest && typeof data.seed !== 'number') {
+          // guest katildi: host maci baslatir (tohum + zorluk + geri sayim gonderir)
+          mpHelloFromGuest = true;
+          mpBeginMatch();
+        }
+        break;
+      case 'match':
+        // host'tan gelen mac baslangici: ayni tohum + zorluk + es zamanli geri sayim
+        if (!MP.isHost) {
+          MP.connected = true; // match mesajı geldiyse bağlantı kesin çalışıyor
           MP.seed = data.seed;
           MP.matchDiff = data.diff || F.difficulty;
-          startGame();
-          mpStartMatchUI();
+          MP.oppBird.skin = data.skin || 'yellow';
+          mpBeginMatch();
         }
         break;
       case 'bird':
@@ -1365,8 +1381,7 @@ function mpFinishDuel() {
 
 function mpDoRematch() {
   hide(mpGameoverScreen);
-  startGame();
-  mpStartMatchUI();
+  mpBeginMatch();
   MP.oppAlive = true;
   MP.oppScore = 0;
   MP.oppRematch = false;
@@ -1381,6 +1396,54 @@ function mpLeave() {
   goHome();
 }
 
+// ---------- Eşzamanlı maç başlatma (geri sayım) ----------
+let mpCountdown = 0;
+
+function mpBeginMatch() {
+  if (MP.isHost) {
+    MP.seed = Math.floor(Math.random() * 1e9);
+    MP.matchDiff = F.difficulty;
+    mpSend({ t: 'match', seed: MP.seed, diff: F.difficulty, skin: F.skin });
+  }
+  // her iki taraf aynı anda startGame + 3-2-1 geri sayım
+  startGame();
+  mpStartMatchUI();
+  mpCountdown = 3 * 60; // 60 fps x 3 saniye
+}
+
+// geri sayım her frame azalır, bitince oyun eşzamanlı başlar
+function mpCountdownTick() {
+  if (mpCountdown <= 0) return;
+  mpCountdown--;
+  if (mpCountdown === 0) {
+    beginPlay();
+  }
+}
+
+function mpDrawCountdown() {
+  if (mpCountdown <= 0) return;
+  const n = Math.ceil(mpCountdown / 60);
+  const phase = (mpCountdown % 60) / 60; // 1 -> 0
+  const scale = 0.8 + 0.5 * phase;
+  ctx.save();
+  ctx.globalAlpha = 0.4 + 0.6 * phase;
+  ctx.translate(W / 2, H * 0.35);
+  ctx.scale(scale, scale);
+  ctx.font = '900 90px "Segoe UI", Arial';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.strokeText(String(n), 0, 0);
+  ctx.fillStyle = '#ffd700';
+  ctx.fillText(String(n), 0, 0);
+  ctx.restore();
+  ctx.font = '800 18px "Segoe UI", Arial';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText('Hazırlan... maç eşzamanlı başlayacak!', W / 2, H * 0.35 + 34);
+  ctx.textAlign = 'left';
+}
+
 // ---------- MP döngü gönderimi ----------
 function mpTick() {
   if (!MP.connected) return;
@@ -1390,17 +1453,6 @@ function mpTick() {
     x: Math.round(bird.x), y: Math.round(bird.y),
     r: Math.round(bird.rot * 100) / 100, a: (state === STATE.PLAYING)
   });
-  if (MP.isHost && (state === STATE.PLAYING || state === STATE.READY)) {
-    // boruları gönder
-    if (frames % 6 === 0) {
-      mpSend({
-        t: 'world',
-        p: pipes.map(pr => ({ x: Math.round(pr.x), h: Math.round(pr.topH), g: Math.round(pr.gap), ps: pr.passed })),
-        sp: DIFFICULTIES[currentDiff].pipeSpeed,
-        s: MP.oppScore
-      });
-    }
-  }
   mpUpdateLiveBar();
 }
 
