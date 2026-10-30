@@ -675,100 +675,166 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
 });
 
 // ---------- Çizim ----------
+let gridPulse = 0;
+
 function draw() {
-  // arka plan
+  gridPulse += 0.02;
+
+  // arka plan (derin degrade)
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#050a14');
-  bg.addColorStop(1, '#0a1522');
+  bg.addColorStop(0, '#040812');
+  bg.addColorStop(0.5, '#071020');
+  bg.addColorStop(1, '#0b1826');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // arena ışıması
+  // perspektif zemin ızgarası (sentetik + kayar)
+  ctx.strokeStyle = 'rgba(0,191,255,0.08)';
+  ctx.lineWidth = 1;
+  const gs = 44;
+  const gOff = (gridPulse * 8) % gs;
+  for (let x = -gs; x < W + gs; x += gs) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = -gs + gOff; y < H + gs; y += gs) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // arena merkez ışıması (nabızlı)
+  const pulse = 0.06 + 0.03 * Math.sin(gridPulse * 2);
   const cg = ctx.createRadialGradient(W / 2, H / 2, 20, W / 2, H / 2, W * 0.75);
-  cg.addColorStop(0, 'rgba(0,191,255,0.07)');
+  cg.addColorStop(0, `rgba(0,191,255,${pulse})`);
   cg.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = cg;
   ctx.fillRect(0, 0, W, H);
 
-  // orta çizgi (neon kesikli)
-  ctx.strokeStyle = 'rgba(0,191,255,0.35)';
+  // orta çizgi (neon kesikli + ışımalı)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,191,255,0.45)';
   ctx.lineWidth = 3;
-  ctx.setLineDash([12, 10]);
+  ctx.shadowColor = 'rgba(0,191,255,0.8)';
+  ctx.shadowBlur = 10;
+  ctx.setLineDash([14, 12]);
   ctx.beginPath();
   ctx.moveTo(W / 2, 8);
   ctx.lineTo(W / 2, H - 8);
   ctx.stroke();
+  ctx.restore();
   ctx.setLineDash([]);
 
-  // orta daire
-  ctx.strokeStyle = 'rgba(0,191,255,0.2)';
+  // orta daire (çift halka)
+  ctx.strokeStyle = 'rgba(0,191,255,0.22)';
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(W / 2, H / 2, W * 0.16, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,191,255,0.1)';
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2, W * 0.16 + 8, 0, Math.PI * 2);
+  ctx.stroke();
 
-  // skor flaşları (gol atan taraf)
+  // skor flaşları (gol atan taraf — daha yoğun)
   if (scoreFlashL > 0) {
-    scoreFlashL -= 0.02;
+    scoreFlashL -= 0.015;
     const g = ctx.createLinearGradient(0, 0, W * 0.5, 0);
-    g.addColorStop(0, `rgba(0,255,204,${scoreFlashL * 0.25})`);
+    g.addColorStop(0, `rgba(0,255,204,${scoreFlashL * 0.4})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W * 0.5, H);
   }
   if (scoreFlashR > 0) {
-    scoreFlashR -= 0.02;
+    scoreFlashR -= 0.015;
     const g = ctx.createLinearGradient(W, 0, W * 0.5, 0);
-    g.addColorStop(0, `rgba(255,82,82,${scoreFlashR * 0.25})`);
+    g.addColorStop(0, `rgba(255,82,82,${scoreFlashR * 0.4})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(W * 0.5, 0, W * 0.5, H);
   }
 
-  // duvarlar
-  ctx.fillStyle = 'rgba(0,191,255,0.5)';
+  // duvarlar (neon + iç parlama)
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,191,255,0.9)';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = 'rgba(120,220,255,0.8)';
   ctx.fillRect(0, 0, W, 4);
   ctx.fillRect(0, H - 4, W, 4);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,191,255,0.15)';
+  ctx.fillRect(0, 4, W, 8);
+  ctx.fillRect(0, H - 12, W, 8);
 
   // sol raket (sen — cyan neon)
   drawPaddle(padX1, left.y, '#00ffcc', hitGlowL);
   // sağ raket (rakip — kırmızı neon)
   drawPaddle(padX2, right.y, '#ff5252', hitGlowR);
-  if (hitGlowL > 0) hitGlowL -= 0.08;
-  if (hitGlowR > 0) hitGlowR -= 0.08;
+  if (hitGlowL > 0) hitGlowL -= 0.06;
+  if (hitGlowR > 0) hitGlowR -= 0.06;
 
-  // top izi (fade)
+  // top izi (renkli — son konumlarda kuyruk, hız arttıkça uzar)
+  const trailBoost = Math.min(1, (ball.speed - 7) / 8); // hızlı top = güçlü iz
   ballTrail.forEach((t, i) => {
-    const a = (i / ballTrail.length) * 0.5;
-    const r = ball.r * (0.3 + 0.7 * i / ballTrail.length);
-    ctx.fillStyle = `rgba(255,255,255,${a * 0.6})`;
+    const fi = i / ballTrail.length;
+    const a = fi * (0.35 + 0.4 * trailBoost);
+    const r = ball.r * (0.25 + 0.75 * fi);
+    // renk: hıza göre cyan→altın
+    const col = trailBoost > 0.5
+      ? `rgba(255,215,0,${a})`
+      : `rgba(140,240,255,${a})`;
+    ctx.fillStyle = col;
     ctx.beginPath();
     ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
     ctx.fill();
   });
 
-  // top (glow'lu beyaz)
+  // top (glow'lu beyaz + çekirdek parlaklığı + halka)
   if (state === STATE.PLAYING || state === STATE.READY || state === STATE.PAUSED) {
     ctx.save();
-    ctx.shadowColor = 'rgba(255,255,255,0.9)';
-    ctx.shadowBlur = 18;
+    // dış ışıma
+    const bglow = ctx.createRadialGradient(ball.x, ball.y, 1, ball.x, ball.y, ball.r * 4);
+    bglow.addColorStop(0, `rgba(255,255,255,${0.5 + 0.3 * trailBoost})`);
+    bglow.addColorStop(0.4, 'rgba(160,230,255,0.25)');
+    bglow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bglow;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r * 4, 0, Math.PI * 2);
+    ctx.fill();
+    // gövde
+    ctx.shadowColor = 'rgba(255,255,255,0.95)';
+    ctx.shadowBlur = 20;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
+    // çekirdek parlaması
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(ball.x - ball.r * 0.25, ball.y - ball.r * 0.25, ball.r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
-  // partiküller
+  // partiküller (glow'lu)
   popParticles.forEach(pt => {
-    ctx.globalAlpha = Math.min(1, pt.life / 20);
-    ctx.fillStyle = pt.color;
+    const a = Math.min(1, pt.life / 20);
+    const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r * 2.4);
+    g.addColorStop(0, pt.color);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = a;
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+    ctx.arc(pt.x, pt.y, pt.r * 2.4, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.globalAlpha = 1;
 
-  // servis geri sayımı
+  // CRT tarama çizgileri (retro dokunuş)
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let y = 0; y < H; y += 4) {
+    ctx.fillRect(0, y, W, 1.5);
+  }
+
+  // servis geri sayımı (altın + kontur)
   if (state === STATE.READY && serveCountdown > 0) {
     const n = Math.ceil(serveCountdown / 60);
     const phase = (serveCountdown % 60) / 60;
@@ -778,15 +844,20 @@ function draw() {
     ctx.scale(0.8 + 0.4 * phase, 0.8 + 0.4 * phase);
     ctx.font = '900 72px "Segoe UI", Arial';
     ctx.textAlign = 'center';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.strokeText(String(n), 0, 24);
     ctx.fillStyle = '#ffd700';
     ctx.fillText(String(n), 0, 24);
     ctx.restore();
   } else if (state === STATE.READY) {
-    // dokunma ipucu
+    // dokunma ipucu (nabızlı)
     const bob = Math.sin(frames * 0.08) * 3;
     ctx.font = '800 15px "Segoe UI", Arial';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText('Kaydır / W-S → oyna', W / 2 + 1, H / 2 + bob + 1);
+    ctx.fillStyle = '#9fe8ff';
     ctx.fillText('Kaydır / W-S → oyna', W / 2, H / 2 + bob);
     ctx.textAlign = 'left';
   }
@@ -814,33 +885,57 @@ function draw() {
     ctx.textAlign = 'left';
   }
 
-  // MP: raketlerin sahiplik etiketi
+  // MP: raketlerin sahiplik etiketi (plaka tarzı)
   if (MP.connected && state === STATE.PLAYING) {
-    ctx.font = '700 10px "Segoe UI", Arial';
+    ctx.font = '800 10px "Segoe UI", Arial';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,255,204,0.7)';
+    // SEN
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    roundRect(padX1 - 8, H - 26, padW + 16, 16, 5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,255,204,0.9)';
     ctx.fillText('SEN', padX1 + padW / 2, H - 14);
-    ctx.fillStyle = 'rgba(255,82,82,0.7)';
+    // RAKİP
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    roundRect(padX2 - 10, H - 26, padW + 20, 16, 5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,82,82,0.9)';
     ctx.fillText('RAKİP', padX2 + padW / 2, H - 14);
     ctx.textAlign = 'left';
   }
 
-  // flaş
+  // flaş + vinyet
   if (flashAlpha > 0) {
     flashAlpha = Math.max(0, flashAlpha - 0.04);
     ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
     ctx.fillRect(0, 0, W, H);
   }
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,5,15,0.5)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function drawPaddle(x, y, color, glow) {
   ctx.save();
-  // ışıma
+  // dış ışıma (çarpınca patlar)
   ctx.shadowColor = color;
-  ctx.shadowBlur = 14 + glow * 22;
+  ctx.shadowBlur = 16 + glow * 26;
+  // degrade: renk → beyaz → renk (parlak merkez)
   const g = ctx.createLinearGradient(x, y, x + padW, y);
   g.addColorStop(0, color);
-  g.addColorStop(0.5, '#ffffff');
+  g.addColorStop(0.45, '#ffffff');
   g.addColorStop(1, color);
   ctx.fillStyle = g;
   // yuvarlatılmış raket
@@ -854,9 +949,24 @@ function drawPaddle(x, y, color, glow) {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-  // iç çizgi
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+
+  // iç kesit çizgileri (teknoloji hissi)
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  const seg = 4;
+  for (let i = 1; i < seg; i++) {
+    ctx.fillRect(x + 2, y + (padH / seg) * i - 1, padW - 4, 1.5);
+  }
+  // merkez şerit
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.fillRect(x + padW * 0.35, y + 4, padW * 0.3, padH - 8);
+  // çarpma anında beyaz parlama
+  if (glow > 0.4) {
+    ctx.globalAlpha = (glow - 0.4) * 0.9;
+    ctx.fillStyle = '#fff';
+    roundRect(x - 2, y - 2, padW + 4, padH + 4, padW / 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ---------- Ana döngü ----------
