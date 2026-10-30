@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pong Düello</title>
+<meta name="theme-color" content="#0f2027">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD (skor) -->
+  <div id="hud" class="hidden">
+    <div id="score-display"><span id="sc-left">0</span><span class="sc-sep">:</span><span id="sc-right">0</span></div>
+    <button id="pause-btn" title="Duraklat (P)">⏸</button>
+  </div>
+
+  <!-- MENÜ -->
+  <div id="menu-screen" class="overlay">
+    <button id="back-to-hub-btn" class="back-btn">← Salon</button>
+    <h1 class="game-title">🏓 PONG</h1>
+    <p class="tagline">Raketi kaydır, topu geçir — 11 puana ilk ulaşan kazanır!</p>
+
+    <div class="difficulty-tabs">
+      <button class="diff-btn" data-diff="easy">Kolay</button>
+      <button class="diff-btn active" data-diff="normal">Normal</button>
+      <button class="diff-btn" data-diff="hard">Zor</button>
+    </div>
+
+    <button id="start-btn" class="big-btn">▶ TEK KİŞİ (AI)</button>
+    <button id="mp-btn" class="small-btn mp-open-btn">🌐 Çevrimiçi Düello</button>
+    <div id="best-score-display">🏆 Rekor galibiyet farkı: 0</div>
+  </div>
+
+  <!-- ÇEVRİMİÇİ DÜELLO -->
+  <div id="mp-screen" class="overlay hidden">
+    <h2 class="go-title" style="color:#00bfff">🌐 PONG DÜELLOSU</h2>
+    <p class="tagline">Gerçek zamanlı — rakibin raketini hareket ettirirken görürsün!</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <p class="tagline" id="mp-wait-text">Arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff7b7b"></p>
+      <button id="mp-quit-btn" class="small-btn">← Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- OYUN BİTTİ (tek kişi) -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h2 class="go-title" id="go-title">OYUN BİTTİ</h2>
+    <div class="score-panel">
+      <div class="score-row"><span>Skor</span><span id="final-score">0 : 0</span></div>
+      <div class="score-row"><span>Rekor fark</span><span id="best-score-go">0</span></div>
+      <div id="new-record" class="hidden">🎉 YENİ REKOR!</div>
+    </div>
+    <div class="menu-row">
+      <button id="retry-btn" class="big-btn">🔄 TEKRAR</button>
+      <button id="home-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <!-- Düello sonu -->
+  <div id="mp-gameover-screen" class="overlay hidden">
+    <h2 class="go-title">🏁 MAÇ BİTTİ</h2>
+    <div class="score-panel">
+      <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
+      <div class="score-row"><span id="mp-opp-label">Rakip</span><span id="mp-final-opp">0</span></div>
+      <div id="mp-result-text"></div>
+    </div>
+    <div class="menu-row">
+      <button id="mp-rematch-btn" class="big-btn">🔄 Rövanş</button>
+      <button id="mp-leave-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- DURAKLAT -->
+  <div id="pause-screen" class="overlay hidden">
+    <h2>DURAKLATILDI</h2>
+    <div class="menu-row">
+      <button id="resume-btn" class="big-btn">▶ Devam</button>
+      <button id="quit-btn" class="small-btn">🏠 Salon</button>
+    </div>
+  </div>
+
+  <div id="tap-hint" class="hidden">👆 Kaydır / W-S tuşları</div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="pong.js"></script>
+</body>
+</html>

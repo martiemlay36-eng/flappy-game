@@ -47,6 +47,18 @@ function loadBest(game) {
 $('hub-flappy-best').textContent = loadFlappy();
 $('hub-snake-best').textContent = loadBest('snake');
 
+// Pong için galibiyet sayısını göster
+(function () {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const s = JSON.parse(raw);
+      const wins = s.pong && s.pong.wins ? s.pong.wins : 0;
+      $('hub-pong-best').textContent = wins > 0 ? wins + ' maç' : '0';
+    }
+  } catch (e) {}
+})();
+
 // ---------- Arka plan animasyonu ----------
 let frames = 0;
 let clouds = [];
