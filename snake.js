@@ -25,6 +25,8 @@ const hud = $('hud'), scoreDisplay = $('score-display');
 const menuScreen = $('menu-screen'), gameoverScreen = $('gameover-screen'), pauseScreen = $('pause-screen');
 const tapHint = $('tap-hint');
 const newRecord = $('new-record');
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
 
 // ---------- Hız seviyeleri ----------
 const SPEEDS = { easy: 8, normal: 11, fast: 15 }; // adım/sn
@@ -267,7 +269,7 @@ function beep(freq, dur, type, vol) {
   osc.start(); osc.stop(ac.currentTime + dur);
 }
 function sfxEat() { beep(660, 0.08, 'sine', 0.14); setTimeout(() => beep(990, 0.10, 'sine', 0.12), 60); }
-function sfxDie() { beep(220, 0.3, 'sawtooth', 0.2, ); setTimeout(() => beep(140, 0.4, 'triangle', 0.16), 150); }
+function sfxDie() { beep(220, 0.3, 'sawtooth', 0.2); setTimeout(() => beep(140, 0.4, 'triangle', 0.16), 150); }
 
 // ---------- Çizim ----------
 function draw() {
