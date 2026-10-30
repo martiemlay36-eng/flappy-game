@@ -113,29 +113,62 @@ function currentStepMs() {
 }
 
 // ---------- Yem yerleştir ----------
+// deterministik RNG (MP senkronu için)
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = Math.random;
+function seedRng(s) { rng = mulberry32(s); }
+
 function spawnFood() {
   let tries = 0;
   while (tries++ < 400) {
-    const f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+    const f = { x: Math.floor(rng() * GRID), y: Math.floor(rng() * GRID) };
     if (!snake.some(s => s.x === f.x && s.y === f.y)) { food = f; return; }
   }
   food = null; // alan doldu
 }
 
 // ---------- Oyunu başlat ----------
-function startGame() {
+let currentDiff = 'normal'; // (MP senkronunda kullanılır)
+
+function startGame(isMP) {
   boardSize = Math.min(W, H * 0.86);
   cell = boardSize / GRID;
   boardX = (W - boardSize) / 2;
   boardY = (H - boardSize) / 2 - 20;
 
+  // MP modunda: host ile aynı tohum → aynı yem yerleşimi
+  if (isMP && MP.connected) {
+    seedRng(MP.seed || 1);
+    currentDiff = MP.matchDiff || S.difficulty;
+  } else {
+    rng = Math.random;
+  }
+
+  // MP'de guest sağdan sola başlar (çakışma olmasın)
+  const isGuest = isMP && MP.connected && !MP.isHost;
   const cy = Math.floor(GRID / 2);
-  snake = [
-    { x: 8, y: cy }, { x: 7, y: cy }, { x: 6, y: cy }
-  ];
+  if (isGuest) {
+    snake = [
+      { x: GRID - 9, y: cy }, { x: GRID - 8, y: cy }, { x: GRID - 7, y: cy }
+    ];
+    dir = { x: -1, y: 0 };
+    nextDir = { x: -1, y: 0 };
+  } else {
+    snake = [
+      { x: 8, y: cy }, { x: 7, y: cy }, { x: 6, y: cy }
+    ];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+  }
+  dirQueue = [];
   prevSnake = snake.map(s => ({ ...s }));
-  dir = { x: 1, y: 0 };
-  nextDir = { x: 1, y: 0 };
   score = 0;
   stepAcc = 0;
   moveProgress = 0;
@@ -149,12 +182,14 @@ function startGame() {
   scoreDisplay.textContent = '0';
   show(hud);
   hide(menuScreen); hide(gameoverScreen); hide(pauseScreen);
+  hide(mpScreen); hide(mpGameoverScreen);
   state = STATE.READY;
   playStartMs = performance.now();
 }
 
 // ---------- Adım ----------
 function step() {
+  applyQueuedDir(); // buffered yön girişlerini uygula
   dir = nextDir;
   const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
@@ -167,6 +202,13 @@ function step() {
 
   prevSnake = snake.map(s => ({ ...s })); // interpolasyon kaydı
   snake.unshift(head);
+
+  // MP: rakip yılanın gövdesine çarpma
+  if (MP.connected && MP.oppSnake) {
+    for (const [ox, oy] of MP.oppSnake) {
+      if (head.x === ox && head.y === oy) { die(); return; }
+    }
+  }
 
   // yem yeme
   if (food && head.x === food.x && head.y === food.y) {
@@ -202,6 +244,11 @@ function die() {
   if (isRecord) S.bestScore = score;
   persist();
 
+  if (MP.connected) {
+    setTimeout(() => { mpOnDeath(); }, 600);
+    return;
+  }
+
   $('final-score').textContent = score;
   $('best-score-go').textContent = S.bestScore;
   if (isRecord && score > 0) show(newRecord); else hide(newRecord);
@@ -212,12 +259,34 @@ function die() {
   }, 600);
 }
 
-// ---------- Girdi ----------
+// ---------- Girdi: hassas kontrol sistemi ----------
+// Yön kuyruğu: hızlı ardışık girişler kaybolmaz, sırayla uygulanır
+let dirQueue = [];
+const MAX_QUEUE = 2;
+
+function queueDir(nx, ny) {
+  if (dirQueue.length >= MAX_QUEUE) dirQueue.shift(); // en eskisini at
+  dirQueue.push({ x: nx, y: ny });
+}
+
+// sıradaki geçerli yönü uygula (her step başında çağrılır)
+function applyQueuedDir() {
+  while (dirQueue.length) {
+    const d = dirQueue.shift();
+    // 180° dönüş ve aynı yön yasağı — kuyruktaki son yöne göre
+    if (d.x === -dir.x && d.y === -dir.y) continue;
+    if (d.x === dir.x && d.y === dir.y) continue;
+    nextDir = d;
+    return;
+  }
+}
+
+// anlık yön değişimi (hassaslık: tıklama anında tepki)
 function setDir(nx, ny) {
-  // 180 derece dönüş yasak
-  if (dir.x === -nx && dir.y === -ny) return;
-  if (nextDir.x === -nx && nextDir.y === -ny) return;
-  nextDir = { x: nx, y: ny };
+  if (state !== STATE.PLAYING && state !== STATE.READY) return;
+  if (nx === -nextDir.x && ny === -nextDir.y) return; // 180 yasak
+  if (nx === nextDir.x && ny === nextDir.y) return;
+  queueDir(nx, ny);
 }
 
 document.addEventListener('keydown', e => {
@@ -243,21 +312,61 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// dokunmatik kaydırma
+// ---------- Mobil: ultra hassas dokunmatik ----------
+// Kısa vuruş = yön, basılı tutma + sürükleme = sürekli kontrol
+const SWIPE_THRESHOLD = 12; // px — çok hassas
 let touchStart = null;
-canvas.addEventListener('touchstart', e => { e.preventDefault(); touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }; if (state === STATE.READY) beginPlay(); }, { passive: false });
+let touchMoved = false;
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
+  touchMoved = false;
+  if (state === STATE.READY) beginPlay();
+}, { passive: false });
+
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
   if (!touchStart) return;
   const dx = e.touches[0].clientX - touchStart.x;
   const dy = e.touches[0].clientY - touchStart.y;
-  if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
+  // dinamik eşik: parmak kımıldadı mı?
+  if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
   if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
   else setDir(0, dy > 0 ? 1 : -1);
-  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  // referansı güncelle — sürükleyerek zigzag çizilebilir
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: touchStart.t };
+  touchMoved = true;
 }, { passive: false });
 
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (!touchStart) return;
+  // tap (kısa dokunuş, hareket yok) = READY'de başlat
+  if (!touchMoved && performance.now() - touchStart.t < 300 && state === STATE.READY) beginPlay();
+  touchStart = null;
+}, { passive: false });
+
+// ---------- Fare desteği (masaüstü) ----------
+let mouseStart = null;
+canvas.addEventListener('mousedown', e => {
+  mouseStart = { x: e.clientX, y: e.clientY };
+  if (state === STATE.READY) beginPlay();
+});
+canvas.addEventListener('mousemove', e => {
+  if (!mouseStart || e.buttons !== 1) return;
+  const dx = e.clientX - mouseStart.x, dy = e.clientY - mouseStart.y;
+  if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
+  if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
+  else setDir(0, dy > 0 ? 1 : -1);
+  mouseStart = { x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('mouseup', () => { mouseStart = null; });
+
 function beginPlay() {
+  if (state !== STATE.READY) return;
+  // MP modunda geri sayım bitince otomatik başlar — elle başlatma yok
+  if (MP.connected && mpCountdown > 0) return;
   state = STATE.PLAYING;
   hide(tapHint);
 }
@@ -526,7 +635,13 @@ function draw() {
   });
   ctx.globalAlpha = 1;
 
+  // rakip yılanı (çevrimiçi) — kendi yılanından sonra çiz
+  if (MP.connected && MP.oppSnake && MP.oppSnake.length) drawOpponentSnake();
+
   ctx.restore();
+
+  // MP geri sayım
+  if (MP.connected) mpDrawCountdown();
 
   // hazır ipucu
   if (state === STATE.READY) {
@@ -566,7 +681,7 @@ function loop(now) {
   while (acc >= STEP_MS) {
     acc -= STEP_MS;
     frames++;
-    foodPulse += 0; // (draw'da artıyor)
+    mpCountdownTick();
     if (state === STATE.PLAYING) {
       const ms = currentStepMs();
       stepAcc += STEP_MS;
@@ -576,6 +691,7 @@ function loop(now) {
     } else {
       moveProgress = 0;
     }
+    mpTick();
     bgStars.forEach(s => { s.tw += s.tws; });
     foodPulse += 0.09;
     popParticles.forEach(pt => { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.12; pt.life--; });
@@ -602,6 +718,334 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
     persist();
   });
 });
+
+// =====================================================
+//            ÇEVRİMİÇİ DÜELLO (PeerJS) — Yılan
+// Host yönetir: tohum (seed) + geri sayım. Her oyuncu
+// kendi yılanını simüle eder, rakibin yılanı görünür.
+// =====================================================
+const MP = {
+  peer: null, conn: null,
+  isHost: false, connected: false,
+  roomCode: '',
+  oppScore: 0, oppAlive: false, oppLen: 3,
+  oppSnake: [],           // rakip yılan segmentleri (görsel)
+  seed: 1, matchDiff: null,
+  rematchVotes: 0, oppRematch: false
+};
+
+const MP_STATE = { MENU: 10, LOBBY: 11 };
+const mpScreen = $('mp-screen'), mpGameoverScreen = $('mp-gameover-screen');
+
+function mpMakeRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function mpCleanup() {
+  if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
+  if (MP.peer) { try { MP.peer.destroy(); } catch (e) {} }
+  MP.conn = null; MP.peer = null;
+  MP.connected = false; MP.isHost = false;
+}
+
+function mpSend(data) {
+  if (MP.conn && MP.connected) { try { MP.conn.send(data); } catch (e) {} }
+}
+
+function mpOpenUI() {
+  show(mpScreen);
+  hide(menuScreen);
+  $('mp-error').textContent = '';
+  show($('mp-btn-row'));
+  hide($('mp-host-area'));
+  hide($('mp-join-area'));
+  $('mp-join-status').textContent = '';
+  $('mp-code-input').value = '';
+}
+
+function mpHost() {
+  hide($('mp-btn-row'));
+  show($('mp-host-area'));
+  $('mp-room-code').textContent = '...';
+  $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
+
+  MP.roomCode = mpMakeRoomCode();
+  MP.isHost = true;
+
+  MP.peer = new Peer('snake-' + MP.roomCode, { debug: 1 });
+
+  MP.peer.on('open', () => {
+    $('mp-room-code').textContent = MP.roomCode;
+    $('mp-wait-text').textContent = 'Arkadaşın bekleniyor... kodu gönder!';
+  });
+
+  MP.peer.on('connection', conn => {
+    if (MP.conn) { try { conn.close(); } catch (e) {} return; }
+    MP.conn = conn;
+    setupConn();
+  });
+
+  MP.peer.on('error', err => {
+    $('mp-error').textContent = 'Bağlantı hatası: ' + (err && err.type ? err.type : 'bilinmiyor');
+    $('mp-room-code').textContent = '-----';
+  });
+}
+
+function mpJoin() {
+  hide($('mp-btn-row'));
+  show($('mp-join-area'));
+  $('mp-join-status').textContent = '';
+}
+
+function mpJoinConfirm() {
+  const code = $('mp-code-input').value.trim().toUpperCase();
+  if (code.length !== 5) { $('mp-join-status').textContent = '5 haneli kod gir!'; return; }
+  $('mp-join-status').textContent = 'Bağlanılıyor...';
+  MP.roomCode = code;
+  MP.isHost = false;
+
+  MP.peer = new Peer(null, { debug: 1 });
+  MP.peer.on('open', () => {
+    MP.conn = MP.peer.connect('snake-' + code, { reliable: true });
+    setupConn();
+  });
+  MP.peer.on('error', err => {
+    $('mp-join-status').textContent = 'Hata: ' + (err && err.type === 'peer-unavailable' ? 'oda bulunamadı!' : (err.type || 'bilinmiyor'));
+  });
+}
+
+let mpHelloFromGuest = false;
+
+function setupConn() {
+  MP.conn.on('open', () => {
+    MP.connected = true;
+    mpSend({ t: 'hello' });
+    if (MP.isHost) {
+      setTimeout(() => {
+        if (MP.connected && !mpHelloFromGuest) {
+          mpHelloFromGuest = true;
+          mpBeginMatch();
+        }
+      }, 3000);
+    }
+  });
+
+  MP.conn.on('data', data => {
+    if (!data || !data.t) return;
+    switch (data.t) {
+      case 'hello':
+        if (MP.isHost && !mpHelloFromGuest) {
+          mpHelloFromGuest = true;
+          mpBeginMatch();
+        }
+        break;
+      case 'match':
+        if (!MP.isHost) {
+          MP.connected = true;
+          MP.seed = data.seed;
+          MP.matchDiff = data.diff || S.difficulty;
+          mpBeginMatch();
+        }
+        break;
+      case 'snake':
+        // rakibin yılanı (compact: segment listesi)
+        MP.oppSnake = data.s;      // [[x,y], ...]
+        MP.oppScore = data.sc;
+        MP.oppAlive = data.a;
+        break;
+      case 'gameover':
+        MP.oppScore = data.s;
+        MP.oppAlive = false;
+        if (state === STATE.GAMEOVER && MP.connected && !mpGameoverScreen.classList.contains('hidden')) {
+          mpFinishDuel();
+        }
+        break;
+      case 'rematch':
+        MP.oppRematch = true;
+        if (MP.isHost && MP.rematchVotes > 0) mpBeginMatch();
+        break;
+    }
+  });
+
+  MP.conn.on('close', () => {
+    MP.connected = false;
+    if (state !== STATE.MENU) {
+      mpCleanup();
+      hide(mpGameoverScreen);
+      goMenu();
+    }
+  });
+}
+
+// ---------- Eşzamanlı maç + geri sayım ----------
+let mpCountdown = 0;
+
+function mpBeginMatch() {
+  if (MP.isHost) {
+    MP.seed = Math.floor(Math.random() * 1e9);
+    MP.matchDiff = S.difficulty;
+    mpSend({ t: 'match', seed: MP.seed, diff: S.difficulty });
+  }
+  startGame(true);
+  mpCountdown = 3 * 60;
+  MP.oppScore = 0;
+  MP.oppAlive = true;
+  MP.oppSnake = [];
+  MP.oppRematch = false;
+  MP.rematchVotes = 0;
+}
+
+function mpCountdownTick() {
+  if (mpCountdown <= 0) return;
+  mpCountdown--;
+  if (mpCountdown === 0) beginPlay();
+}
+
+function mpDrawCountdown() {
+  if (mpCountdown <= 0) return;
+  const n = Math.ceil(mpCountdown / 60);
+  const phase = (mpCountdown % 60) / 60;
+  ctx.save();
+  ctx.globalAlpha = 0.4 + 0.6 * phase;
+  ctx.translate(W / 2, H * 0.32);
+  ctx.scale(0.8 + 0.5 * phase, 0.8 + 0.5 * phase);
+  ctx.font = '900 90px "Segoe UI", Arial';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.strokeText(String(n), 0, 0);
+  ctx.fillStyle = '#ffd700';
+  ctx.fillText(String(n), 0, 0);
+  ctx.restore();
+  ctx.font = '800 17px "Segoe UI", Arial';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText('Düello eşzamanlı başlayacak!', W / 2, H * 0.32 + 34);
+  ctx.textAlign = 'left';
+}
+
+function mpOnDeath() {
+  if (!MP.connected) return;
+  mpSend({ t: 'gameover', s: score });
+  $('mp-final-me').textContent = score;
+  $('mp-final-opp').textContent = MP.oppScore;
+  $('mp-me-label').textContent = 'Sen';
+  $('mp-opp-label').textContent = 'Rakip';
+  if (MP.oppAlive) {
+    $('mp-result-text').textContent = 'Rakip hâlâ oynuyor...';
+    show(mpGameoverScreen);
+    hide(hud);
+  } else {
+    mpFinishDuel();
+  }
+}
+
+function mpFinishDuel() {
+  $('mp-final-me').textContent = score;
+  $('mp-final-opp').textContent = MP.oppScore;
+  let txt;
+  if (score > MP.oppScore) txt = '🏆 KAZANDIN!';
+  else if (score < MP.oppScore) txt = '💀 KAYBETTİN...';
+  else txt = '🤝 BERABERE!';
+  $('mp-result-text').textContent = txt;
+  hide(gameoverScreen);
+  show(mpGameoverScreen);
+  hide(hud);
+}
+
+function mpLeave() {
+  mpCleanup();
+  hide(mpGameoverScreen);
+  goMenu();
+}
+
+function goMenu() {
+  state = STATE.MENU;
+  hide(hud); hide(gameoverScreen); hide(pauseScreen); hide(mpScreen); hide(mpGameoverScreen);
+  show(menuScreen);
+  $('best-score-display').textContent = `🏆 Rekor: ${S.bestScore}`;
+}
+
+// ---------- MP veri gönderimi (her 5 frame) ----------
+let mpSendAcc = 0;
+function mpTick() {
+  if (!MP.connected) return;
+  mpSendAcc++;
+  if (mpSendAcc % 5 !== 0) return;
+  mpSend({
+    t: 'snake',
+    s: snake.map(seg => [seg.x, seg.y]),
+    sc: score,
+    a: state === STATE.PLAYING || state === STATE.READY
+  });
+}
+
+// rakip yılanını çiz (mavi tonlarda, yarı saydam)
+function drawOpponentSnake() {
+  if (!MP.oppSnake || !MP.oppSnake.length) return;
+  const pts = MP.oppSnake.map(([x, y]) => ({
+    x: boardX + (x + 0.5) * cell,
+    y: boardY + (y + 0.5) * cell
+  }));
+  const n2 = pts.length;
+  // kontur + gövde
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(10,20,50,0.75)';
+  ctx.lineWidth = cell * 0.78;
+  ctx.beginPath();
+  for (let i = 0; i < n2; i++) {
+    if (i === 0) ctx.moveTo(pts[i].x, pts[i].y); else ctx.lineTo(pts[i].x, pts[i].y);
+  }
+  if (n2 === 1) ctx.lineTo(pts[0].x + 0.1, pts[0].y);
+  ctx.stroke();
+  for (let i = n2 - 1; i > 0; i--) {
+    const t = i / Math.max(1, n2 - 1);
+    const c = ctx.createLinearGradient(pts[i].x, pts[i].y, pts[i-1].x, pts[i-1].y);
+    const r1 = Math.round(70 - t * 20), g1 = Math.round(150 - t * 40), b1 = Math.round(235 - t * 30);
+    c.addColorStop(0, `rgb(${r1},${g1},${b1})`);
+    c.addColorStop(1, `rgb(${r1-15},${g1-25},${b1-15})`);
+    ctx.strokeStyle = c;
+    ctx.lineWidth = cell * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(pts[i].x, pts[i].y);
+    ctx.lineTo(pts[i-1].x, pts[i-1].y);
+    ctx.stroke();
+  }
+  // kafa
+  if (n2) {
+    ctx.fillStyle = 'rgb(90,170,245)';
+    ctx.strokeStyle = 'rgba(10,20,50,0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, cell * 0.4, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
+}
+
+// ---------- MP butonları ----------
+$('mp-btn').addEventListener('click', mpOpenUI);
+$('mp-host-btn').addEventListener('click', mpHost);
+$('mp-join-btn').addEventListener('click', mpJoin);
+$('mp-join-confirm').addEventListener('click', mpJoinConfirm);
+$('mp-code-input').addEventListener('keydown', e => { if (e.key === 'Enter') mpJoinConfirm(); });
+$('mp-quit-btn').addEventListener('click', () => {
+  mpCleanup();
+  hide(mpScreen);
+  goMenu();
+});
+$('mp-rematch-btn').addEventListener('click', () => {
+  if (!MP.connected) { mpLeave(); return; }
+  MP.rematchVotes = 1;
+  mpSend({ t: 'rematch' });
+  if (MP.isHost && MP.oppRematch) mpBeginMatch();
+  $('mp-result-text').textContent = MP.isHost
+    ? (MP.oppRematch ? 'Başlıyor!' : 'Rakibin onayı bekleniyor...')
+    : 'Host başlatacak — onay bekleniyor...';
+});
+$('mp-leave-btn').addEventListener('click', mpLeave);
 
 // ---------- Başlat ----------
 function init() {

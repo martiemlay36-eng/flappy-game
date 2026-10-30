@@ -30,7 +30,53 @@
     </div>
 
     <button id="start-btn" class="big-btn">▶ BAŞLA</button>
+    <button id="mp-btn" class="small-btn mp-open-btn">🌐 Çevrimiçi Düello</button>
     <div id="best-score-display">🏆 Rekor: 0</div>
+  </div>
+
+  <!-- ÇEVRİMİÇİ DÜELLO -->
+  <div id="mp-screen" class="overlay hidden">
+    <h2 class="go-title" style="color:#00bfff">🌐 YILAN DÜELLOSU</h2>
+    <p class="tagline">Aynı haritada yarışın — kim daha uzun yaşayacak?</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <p class="tagline" id="mp-wait-text">Arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff7b7b"></p>
+      <button id="mp-quit-btn" class="small-btn">← Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- Düello sonu -->
+  <div id="mp-gameover-screen" class="overlay hidden">
+    <h2 class="go-title">🏁 DÜELLO BİTTİ</h2>
+    <div class="score-panel">
+      <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
+      <div class="score-row"><span id="mp-opp-label">Rakip</span><span id="mp-final-opp">0</span></div>
+      <div id="mp-result-text"></div>
+    </div>
+    <div class="menu-row">
+      <button id="mp-rematch-btn" class="big-btn">🔄 Rövanş</button>
+      <button id="mp-leave-btn" class="small-btn">🏠 Menü</button>
+    </div>
   </div>
 
   <!-- OYUN BİTTİ -->
@@ -62,6 +108,7 @@
   <div id="tap-hint" class="hidden">👆 Kaydır / Yön tuşları</div>
 </div>
 
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="snake.js"></script>
 </body>
 </html>
