@@ -763,6 +763,74 @@ async function flushMicrotasks() {
     console.log('✅ EV SAHİBİ OYUN SEÇİMİ & ÇAPRAZ ODA OTOMATİK YÖNLENDİRME TESTİ GEÇTİ!');
   }
 
+  // =========================================================================
+  // 11) UZAY AVCISI: 1v1 EŞZAMANLI DALGA/BOSS, CANLI İZLEYİCİ & OYUN GEÇİŞİ
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const hostSess = {};
+    const guestSess = {};
+
+    const host = createClientSandbox('space.js', 420, 700, MockPeer, hostSess);
+    const guest = createClientSandbox('space.js', 360, 640, MockPeer, guestSess);
+
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    const code = host.eval('MP.roomCode');
+
+    guest.sandbox.document.getElementById('mp-code-input').value = code;
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    assert.strictEqual(host.eval('MP.connected && MP.inLobby'), true, 'Uzay Avcısı Host lobiye girmeli');
+    assert.strictEqual(guest.eval('MP.connected && MP.inLobby'), true, 'Uzay Avcısı Guest lobiye girmeli');
+
+    // Host zorluğu "hard" ve sektörü "cyber" yapsın
+    host.eval(`
+      MP.lobbyDiff = 'hard';
+      MP.lobbySector = 'cyber';
+      mpSend({ t: 'lobby_cfg', diff: 'hard', sector: 'cyber', name: MP.myName, ship: SP.ship });
+    `);
+    await flushMicrotasks();
+    assert.strictEqual(guest.eval('MP.lobbyDiff'), 'hard', 'Guest zorluk ayarını almalı');
+    assert.strictEqual(guest.eval('MP.lobbySector'), 'cyber', 'Guest galaksi sektörünü almalı');
+
+    bothReady(host, guest);
+    // Geri sayım bittikten sonra 120 kare simüle edelim (mermileri etkisiz tutarak sadece dalga doğuşlarını karşılaştıralım)
+    for (let i = 0; i < 185; i++) { host.stepFrame(); guest.stepFrame(); }
+    for (let i = 0; i < 100; i++) {
+      host.eval('bullets.length = 0; player.invuln = 99;');
+      guest.eval('bullets.length = 0; player.invuln = 99;');
+      host.stepFrame();
+      guest.stepFrame();
+    }
+
+    const hostEnemies = host.eval('enemies.map(e => e.type + ":" + Math.round(e.x)).join(",")');
+    const guestEnemies = guest.eval('enemies.map(e => e.type + ":" + Math.round(e.x)).join(",")');
+    assert.ok(hostEnemies.length > 0, 'Uzay Avcısı dalgaları düşman üretmeli');
+    assert.strictEqual(hostEnemies, guestEnemies, 'Farklı ekran boyutlarında (420x700 vs 360x640) düşman türleri ve sanal X konumları %100 birebir aynı olmalı!');
+
+    // P1 (Host) 120 puan alıp tüm canlarını kaybetsin, P2 (Guest) hala hayatta (210 puan) savaşsın:
+    host.eval('score = 120; mpOnScore(); player.invuln = 0; player.shield = false; player.hp = 1;');
+    guest.eval('score = 210; mpOnScore();');
+    host.eval('damagePlayer();'); // hp -> 0 => handlePlayerDeath() => mpOnDeath() => MP.spectating = true!
+    await flushMicrotasks();
+
+    assert.strictEqual(host.eval('MP.spectating'), true, 'Erken elenen Uzay Avcısı oyuncusu Canlı İzleyici (Spectator) moduna geçmeli');
+    assert.strictEqual(host.eval('mpGameoverScreen.classList.contains("hidden")'), true, 'Rakip savaşırken maç sonu ekranı erken açılmamalı');
+
+    // Guest de elenince her iki tarafta düello sonuç ekranı açılmalı!
+    guest.eval('player.invuln = 0; player.shield = false; player.hp = 1; damagePlayer();');
+    await flushMicrotasks();
+    for (let i = 0; i < 45; i++) { host.stepFrame(); guest.stepFrame(); }
+
+    assert.strictEqual(host.eval('MP.spectating'), false, 'Rakip de düşünce izleyici modu kapanmalı');
+    assert.strictEqual(host.eval('MP.seriesOpp'), 1, 'Host seride Guest galibiyetini yazmalı');
+    assert.strictEqual(guest.eval('MP.seriesMe'), 1, 'Guest seride kendi galibiyetini yazmalı');
+
+    console.log('✅ UZAY AVCISI ÇEVRİMİÇİ 1v1 EŞZAMANLI DALGA & CANLI İZLEYİCİ TESTİ GEÇTİ!');
+  }
+
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
 })().catch(err => {
   console.error('TEST HATASI:', err);

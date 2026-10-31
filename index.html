@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Oyun Salonu</title>
 <meta name="theme-color" content="#0f2027">
-<link rel="stylesheet" href="style.css?v=mp8">
+<link rel="stylesheet" href="style.css?v=mp9">
 </head>
 <body>
 <div id="game-wrapper">
@@ -26,16 +26,21 @@
         <span class="card-name">Yılan</span>
         <span class="card-best">🏆 Rekor: <span id="hub-snake-best">0</span></span>
       </a>
-      <span class="game-card soon">
-        <span class="card-emoji">🧱</span>
-        <span class="card-name">Tetris</span>
-        <span class="card-soon-badge">Yakında</span>
-      </span>
       <a class="game-card" href="pong.html">
         <span class="card-emoji">🏓</span>
         <span class="card-name">Pong</span>
         <span class="card-best">🏆 Galibiyet: <span id="hub-pong-best">0</span></span>
       </a>
+      <a class="game-card" href="space.html">
+        <span class="card-emoji">🚀</span>
+        <span class="card-name">Uzay Avcısı</span>
+        <span class="card-best">🏆 Rekor: <span id="hub-space-best">0</span></span>
+      </a>
+      <span class="game-card soon">
+        <span class="card-emoji">🧱</span>
+        <span class="card-name">Tetris</span>
+        <span class="card-soon-badge">Yakında</span>
+      </span>
       <span class="game-card soon">
         <span class="card-emoji">🏁</span>
         <span class="card-name">Yarış</span>
@@ -47,7 +52,7 @@
   <!-- ORTAK SALON LOBİSİ (Tek Odayla İstediğin Oyuna Gir!) -->
   <div id="mp-screen" class="overlay hidden">
     <h2 class="go-title" style="color:#00bfff">🌐 ORTAK ODA LOBİSİ</h2>
-    <p class="tagline">Odayı bir kez kur — Flappy, Yılan ve Pong arasında kopmadan gez!</p>
+    <p class="tagline">Odayı bir kez kur — 4 oyun arasında kopmadan gez!</p>
 
     <div id="mp-lobby" class="mp-panel">
       <input id="mp-name-input" maxlength="12" placeholder="Takma adın (isteğe bağlı)" class="mp-name-input" autocomplete="off">
@@ -98,6 +103,7 @@
             <button type="button" class="mp-game-chip" data-game="flappy">🐦 Flappy Kuş</button>
             <button type="button" class="mp-game-chip" data-game="snake">🐍 Yılan</button>
             <button type="button" class="mp-game-chip" data-game="pong">🏓 Pong</button>
+            <button type="button" class="mp-game-chip" data-game="space">🚀 Uzay Avcısı</button>
           </div>
         </div>
       </div>
@@ -109,7 +115,7 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="mp-core.js?v=mp8"></script>
-<script src="hub.js?v=mp8"></script>
+<script src="mp-core.js?v=mp9"></script>
+<script src="hub.js?v=mp9"></script>
 </body>
 </html>

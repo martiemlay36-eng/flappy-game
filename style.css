@@ -103,19 +103,20 @@ body {
 .game-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  width: min(360px, 88%);
+  gap: 11px;
+  width: min(360px, 90%);
 }
 
 .game-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 20px 10px 16px;
+  gap: 4px;
+  padding: 13px 10px 11px;
   border: 1px solid rgba(255,255,255,.25);
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(0,191,255,.16), rgba(0,40,80,.5));
+  text-decoration: none;
   cursor: pointer;
   transition: transform .15s, box-shadow .15s, border-color .15s;
 }
@@ -126,7 +127,7 @@ body {
 }
 .game-card:active:not(:disabled) { transform: translateY(0); }
 
-.card-emoji { font-size: 42px; }
+.card-emoji { font-size: 35px; }
 .card-name { color: #fff; font-weight: 800; font-size: 16px; }
 .card-best { color: #ffd700; font-size: 12px; font-weight: 700; }
 
@@ -1049,6 +1050,49 @@ input[type="range"] {
   font-size: 17px;
   font-weight: 900;
   color: #ffd54f;
+}
+/* ---------- Uzay Avcısı EMP Süper Bomba & Can Çubuğu ---------- */
+#emp-btn {
+  position: absolute;
+  bottom: 18px;
+  right: 16px;
+  pointer-events: auto;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 229, 255, 0.45);
+  background: radial-gradient(circle at 35% 30%, rgba(0, 229, 255, 0.30), rgba(13, 35, 68, 0.65));
+  color: #fff;
+  font-size: 23px;
+  font-weight: 900;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  touch-action: manipulation;
+  transition: transform 0.1s, box-shadow 0.2s, opacity 0.2s;
+  opacity: 0.55;
+}
+#emp-btn.ready {
+  opacity: 1;
+  border-color: #ffd700;
+  background: radial-gradient(circle at 35% 30%, #00e5ff, #0072ff);
+  box-shadow: 0 0 22px rgba(0, 229, 255, 0.85), 0 0 8px rgba(255, 215, 0, 0.7);
+  animation: empPulse 0.9s infinite alternate;
+}
+#emp-btn:active { transform: scale(0.92); }
+@keyframes empPulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.08); }
+}
+.space-hp-pill {
+  background: rgba(0, 0, 0, 0.48);
+  border: 1px solid rgba(255, 82, 82, 0.45);
+  border-radius: 16px;
+  padding: 3px 10px;
+  color: #ff8a80;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  backdrop-filter: blur(4px);
 }
 .mp-grace-sub {
   font-size: 12.5px;

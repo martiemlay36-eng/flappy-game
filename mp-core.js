@@ -14,7 +14,8 @@
   const GAMES = {
     flappy: { id: 'flappy', prefix: 'flappy-', file: 'flappy.html', icon: '🐦', name: 'Flappy Kuş' },
     snake:  { id: 'snake',  prefix: 'snake-',  file: 'snake.html',  icon: '🐍', name: 'Yılan' },
-    pong:   { id: 'pong',   prefix: 'pong-',   file: 'pong.html',   icon: '🏓', name: 'Pong' }
+    pong:   { id: 'pong',   prefix: 'pong-',   file: 'pong.html',   icon: '🏓', name: 'Pong' },
+    space:  { id: 'space',  prefix: 'space-',  file: 'space.html',  icon: '🚀', name: 'Uzay Avcısı' }
   };
 
   // 4G/5G CGNAT & Farklı Ağlar İçin Çoklu STUN + Ücretsiz Açık TURN (UDP + TCP + TLS 443)
@@ -505,7 +506,8 @@
       { prefix: 'hub-', id: 'hub' },
       { prefix: 'flappy-', id: 'flappy' },
       { prefix: 'snake-', id: 'snake' },
-      { prefix: 'pong-', id: 'pong' }
+      { prefix: 'pong-', id: 'pong' },
+      { prefix: 'space-', id: 'space' }
     ].filter(x => x.prefix !== skipPrefix);
     if (!targets.length) return null;
 

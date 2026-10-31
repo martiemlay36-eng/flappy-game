@@ -46,6 +46,7 @@ function loadBest(game) {
 
 $('hub-flappy-best').textContent = loadFlappy();
 $('hub-snake-best').textContent = loadBest('snake');
+if ($('hub-space-best')) $('hub-space-best').textContent = loadBest('space');
 
 // Pong için galibiyet sayısını göster
 (function () {
@@ -209,7 +210,7 @@ requestAnimationFrame(loop);
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const s = JSON.parse(raw);
-        return (s.flappy && s.flappy.playerName) || (s.snake && s.snake.playerName) || (s.pong && s.pong.playerName) || '';
+        return (s.flappy && s.flappy.playerName) || (s.snake && s.snake.playerName) || (s.pong && s.pong.playerName) || (s.space && s.space.playerName) || '';
       }
     } catch (e) {}
     return '';

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Uzay Avcısı</title>
+<meta name="theme-color" content="#070d1e">
+<link rel="stylesheet" href="style.css?v=mp9">
+</head>
+<body>
+<div id="game-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD (can + altın + kombo + güçlendirmeler + skor + EMP bomba) -->
+  <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hud-coin-pill">🪙 <span id="hud-coins">0</span></div>
+      <div id="hud-hp" class="space-hp-pill" title="Gövde Zırhı">❤️❤️❤️</div>
+      <div id="hud-combo" class="hidden">🔥 x2</div>
+    </div>
+    <div id="power-badges"></div>
+    <div id="score-display">0</div>
+    <button id="pause-btn" title="Duraklat / Hassasiyet Ayarı (P)">⏸</button>
+    <button id="emp-btn" title="EMP Süper Bomba (Boşluk / B)">💥</button>
+  </div>
+
+  <!-- MENÜ -->
+  <div id="menu-screen" class="overlay">
+    <button id="back-to-hub-btn" class="back-btn">← Salon</button>
+    <div id="menu-coin-pill" class="coin-pill" title="Hangarı Aç">🪙 <span id="menu-coins">0</span></div>
+
+    <h1 class="game-title snake-title">🚀 UZAY AVCISI</h1>
+    <p class="tagline">Otomatik ateş · sürükle kaç · Boss avla &amp; 💥 EMP patlat!</p>
+
+    <div class="skin-row" id="menu-skin-row">
+      <button class="skin-btn" data-skin="falcon" title="Şahin Avcı"></button>
+      <button class="skin-btn" data-skin="phoenix" title="Kızıl Anka"></button>
+      <button class="skin-btn" data-skin="phantom" title="Mor Hayalet"></button>
+      <button class="skin-btn" data-skin="frost" title="Buzul Kruvazör"></button>
+      <button class="skin-btn" data-skin="titan" title="Altın Titan"></button>
+      <button class="skin-btn" data-skin="nova" title="Süpernova X"></button>
+    </div>
+
+    <div class="difficulty-tabs" id="diff-tabs">
+      <button class="diff-btn" data-diff="easy">Kolay</button>
+      <button class="diff-btn active" data-diff="normal">Normal</button>
+      <button class="diff-btn" data-diff="hard">Zor</button>
+    </div>
+
+    <button id="start-btn" class="big-btn">▶ BAŞLA</button>
+
+    <div class="menu-row">
+      <button id="mp-btn" class="small-btn">🌐 Çevrimiçi Düello</button>
+      <button id="shop-btn" class="small-btn shop-open-btn">🛒 Hangar</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="ctrl-mode-btn" class="small-btn" title="Mobil dokunma tipi">🎯 Kontrol: Trackpad</button>
+      <button id="stats-btn" class="small-btn">📊 İstatistik</button>
+      <button id="lb-btn" class="small-btn">🏅 Tablo</button>
+    </div>
+
+    <div class="volume-row sens-row">
+      <span id="sens-label">📱 Hassasiyet: %135</span>
+      <input type="range" id="sens-range" min="60" max="220" value="135">
+    </div>
+
+    <div class="menu-row">
+      <button id="sound-btn" class="small-btn">🔊 Efekt: Açık</button>
+      <button id="music-btn" class="small-btn">🎵 Müzik: Açık</button>
+    </div>
+    <div class="volume-row">
+      <span id="volume-icon">🔊</span><input type="range" id="volume-range" min="0" max="100" value="70">
+    </div>
+
+    <div id="best-score-display">🏆 Rekor: 0</div>
+  </div>
+
+  <!-- HANGAR (GEMİLER & GALAKSİ SEKTÖRLERİ) -->
+  <div id="shop-screen" class="overlay hidden">
+    <div class="coin-pill shop-coin-top">🪙 <span id="shop-coins">0</span></div>
+    <h2 class="shop-title">🛒 UZAY HANGARI</h2>
+    <div class="difficulty-tabs" id="shop-tabs">
+      <button class="shop-tab-btn diff-btn active" data-tab="ships">🚀 Gemiler</button>
+      <button class="shop-tab-btn diff-btn" data-tab="sectors">🌌 Sektörler</button>
+    </div>
+    <div id="shop-list" class="shop-panel"></div>
+    <p id="shop-msg" class="tagline"></p>
+    <button id="shop-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- SKOR TABLOSU -->
+  <div id="leaderboard-screen" class="overlay hidden">
+    <h2>🏅 SKOR TABLOSU</h2>
+    <div id="lb-list" class="lb-panel"></div>
+    <button id="lb-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- İSTATİSTİK -->
+  <div id="stats-screen" class="overlay hidden">
+    <h2>📊 İSTATİSTİK</h2>
+    <div class="stats-panel score-panel">
+      <div class="score-row"><span>🏆 En iyi rekor</span><span id="st-best">0</span></div>
+      <div class="score-row"><span>👾 Vurulan düşman</span><span id="st-kills">0</span></div>
+      <div class="score-row"><span>👹 Yıkılan Boss</span><span id="st-bosses">0</span></div>
+      <div class="score-row"><span>🌊 En yüksek dalga</span><span id="st-wave">1</span></div>
+      <div class="score-row"><span>🔥 En iyi kombo</span><span id="st-combo">0</span></div>
+      <div class="score-row"><span>🎮 Toplam uçuş</span><span id="st-games">0</span></div>
+      <div class="score-row"><span>🪙 Toplam altın</span><span id="st-coins">0</span></div>
+    </div>
+    <button id="stats-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- ÇEVRİMİÇİ DÜELLO -->
+  <div id="mp-screen" class="overlay hidden">
+    <h2 class="go-title" style="color:#00bfff">🌐 FİLO DÜELLOSU</h2>
+    <p class="tagline">Aynı dalgalar &amp; aynı Boss — kim daha yüksek skorla hayatta kalacak?</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <input id="mp-name-input" maxlength="12" placeholder="Pilot adın (isteğe bağlı)" class="mp-name-input" autocomplete="off">
+
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <div class="mp-share-row">
+          <button id="mp-copy-btn" class="mp-share-btn" type="button">📋 Kodu Kopyala</button>
+          <button id="mp-share-btn" class="mp-share-btn whatsapp" type="button">📤 Davet Gönder</button>
+        </div>
+        <p class="tagline" id="mp-wait-text">Kanat arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff7b7b"></p>
+      <button id="mp-quit-btn" class="small-btn">← Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- Düello sonu -->
+  <div id="mp-gameover-screen" class="overlay hidden">
+    <h2 class="go-title">🏁 FİLO DÜELLOSU BİTTİ</h2>
+    <div id="mp-series-text" class="mp-series-pill">🏅 Seri: 0 - 0</div>
+    <div class="score-panel">
+      <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
+      <div class="score-row"><span id="mp-opp-label">Rakip</span><span id="mp-final-opp">0</span></div>
+      <div id="mp-result-text"></div>
+    </div>
+    <div class="menu-row">
+      <button id="mp-rematch-btn" class="big-btn">🔄 Rövanş</button>
+      <button id="mp-leave-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- OYUN BİTTİ -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h2 class="go-title">GEMİ DÜŞTÜ</h2>
+
+    <div id="medal-display" class="hidden">
+      <div id="medal-icon">🥇</div>
+      <div id="medal-text">MADALYA</div>
+    </div>
+
+    <div class="score-panel">
+      <div class="score-row"><span>Skor</span><span id="final-score">0</span></div>
+      <div class="score-row"><span>Ulaşılan Dalga</span><span id="final-wave">1</span></div>
+      <div class="score-row"><span>En İyi</span><span id="best-score-go">0</span></div>
+      <div class="score-row"><span>Kazanılan</span><span id="run-coins-go">🪙 +0</span></div>
+      <div id="new-record" class="hidden">🎉 YENİ REKOR!</div>
+    </div>
+
+    <div id="name-save-row" class="name-save-row">
+      <input id="player-name" maxlength="12" placeholder="Adın" autocomplete="off">
+      <button id="save-score-btn" class="small-btn">🏅 Kaydet</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="retry-btn" class="big-btn">🔄 TEKRAR</button>
+      <button id="home-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- DURAKLAT (Canlı Mobil Hassasiyet Ayarlı!) -->
+  <div id="pause-screen" class="overlay hidden">
+    <h2>DURAKLATILDI</h2>
+    <div class="score-panel">
+      <div class="volume-row sens-row" style="justify-content:space-between">
+        <span id="pause-sens-label">📱 Hassasiyet: %135</span>
+        <input type="range" id="pause-sens-range" min="60" max="220" value="135">
+      </div>
+      <button id="pause-ctrl-btn" class="small-btn">🎯 Kontrol: Trackpad</button>
+    </div>
+    <div class="menu-row">
+      <button id="resume-btn" class="big-btn">▶ Devam</button>
+      <button id="quit-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <div id="tap-hint" class="hidden">👆 Sürükle yönet · Otomatik Ateş · 💥 EMP Bomba</div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="mp-core.js?v=mp9"></script>
+<script src="space.js?v=mp9"></script>
+</body>
+</html>
