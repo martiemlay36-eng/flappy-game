@@ -259,11 +259,12 @@ function tickMusic() {
   if (!saved.musicOn || saved.volume <= 0.005) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (!audioCtx || audioCtx.state !== 'running') return;
-  if (state === STATE.PAUSED || state === STATE.DYING || state === STATE.GAMEOVER) return;
+  const isSpec = MP.connected && MP.spectating;
+  if (state === STATE.PAUSED || state === STATE.DYING || (state === STATE.GAMEOVER && !isSpec)) return;
 
   const idx = musicStep % 16;
   musicStep++;
-  if (state === STATE.PLAYING || state === STATE.READY) {
+  if (state === STATE.PLAYING || state === STATE.READY || isSpec) {
     playMusicNote(MELODY_PLAY[idx], 0.15, 'triangle', 0.045);
     if (idx % 2 === 0) playMusicNote(BASS_PLAY[idx], 0.26, 'sine', 0.04);
   } else {
@@ -846,18 +847,63 @@ function emitTrail() {
 }
 
 // ---------- Fizik & Dünya Güncellemesi ----------
+function stepWorldScroll(d, hs, vs, pH, slowMul) {
+  pipeTimer += slowMul;
+  if (pipeTimer >= d.pipeInterval) {
+    spawnPipe();
+    pipeTimer -= d.pipeInterval;
+  }
+
+  pipes.forEach(p => {
+    p.age += slowMul;
+    p.x -= p.virtSpeed * hs * slowMul;
+    let virtTop = p.baseTopV;
+    let virtGap = p.baseGapV;
+    if (p.type === 'moving') {
+      virtTop += Math.sin(p.phase + p.age * p.moveFreq) * p.moveAmpV;
+      virtTop = Math.max(48, Math.min(VIRT_PLAY_H - virtGap - 48, virtTop));
+    } else if (p.type === 'pulse') {
+      const delta = Math.sin(p.phase + p.age * 0.05) * p.pulseAmpV;
+      virtGap = Math.max(96, p.baseGapV + delta);
+      virtTop = p.baseTopV - delta * 0.5;
+    }
+    p.topH = virtTop * vs;
+    p.gap = virtGap * vs;
+  });
+
+  for (let i = coins.length - 1; i >= 0; i--) {
+    const c = coins[i];
+    c.spin += 0.1;
+    c.x -= c.virtSpeed * hs * slowMul;
+    c.y = c.normY * pH;
+    if (c.x < -30) coins.splice(i, 1);
+  }
+
+  for (let i = powers.length - 1; i >= 0; i--) {
+    const pw = powers[i];
+    pw.bob += 0.08;
+    pw.x -= pw.virtSpeed * hs * slowMul;
+    pw.y = pw.normY * pH + Math.sin(pw.bob) * 5;
+    if (pw.x < -35) powers.splice(i, 1);
+  }
+
+  pipes = pipes.filter(p => p.x + p.w > -65);
+}
+
 function update() {
   frames++;
   const d = DIFFICULTIES[currentDiff];
   const vs = vScale(), hs = hScale();
   const slowMul = slowFrames > 0 ? 0.58 : 1;
+  const specScrolling = MP.connected && (MP.oppAlive || MP.specEndFrames > 0) && (state === STATE.DYING || MP.spectating);
 
-  // 4 aşamalı biyom yumuşak geçişi (her 10 puanda bir: 0=gündüz, 1=günbatımı, 2=gece, 3=fırtına)
-  const targetBiome = Math.floor(score / 10);
+  // 4 aşamalı biyom yumuşak geçişi (izleyici modunda rakibin skorunu da takip eder!)
+  const biomeScore = MP.spectating ? Math.max(score, MP.oppScore) : score;
+  const targetBiome = Math.floor(biomeScore / 10);
   biomePos += (targetBiome - biomePos) * 0.018;
 
   clouds.forEach(c => {
-    c.x -= c.sp * (state === STATE.PLAYING ? slowMul : 0.4);
+    c.x -= c.sp * ((state === STATE.PLAYING || specScrolling) ? slowMul : 0.4);
     if (c.x < -80) { c.x = W + 80; c.y = 35 + Math.random() * (H * 0.34); }
   });
   stars.forEach(s => { s.tw += s.tws; });
@@ -865,22 +911,22 @@ function update() {
   // Fırtına biyomunda yağmur/kar & şimşek
   const stormWeight = biomeWeight(3);
   if (stormWeight > 0.08) {
-    const isSnow = score >= 40;
+    const isSnow = biomeScore >= 40;
     weatherDrops.forEach(wd => {
       wd.x -= isSnow ? Math.sin(frames * 0.03 + wd.len) * 0.8 + 0.7 : 2.2;
       wd.y += isSnow ? wd.sp * 0.32 : wd.sp * 1.15;
       if (wd.y > H) { wd.y = -12; wd.x = Math.random() * (W + 60); }
       if (wd.x < -20) wd.x = W + 20;
     });
-    if (!isSnow && state === STATE.PLAYING && Math.random() < 0.0025 * stormWeight) {
+    if (!isSnow && (state === STATE.PLAYING || specScrolling) && Math.random() < 0.0025 * stormWeight) {
       lightningAlpha = 0.55;
       sfx.thunder();
     }
   }
   if (lightningAlpha > 0) lightningAlpha = Math.max(0, lightningAlpha - 0.035);
 
-  if (state === STATE.PLAYING || state === STATE.DYING) {
-    groundX -= (state === STATE.PLAYING ? d.pipeSpeed * hs * slowMul : 0);
+  if (state === STATE.PLAYING || specScrolling) {
+    groundX -= d.pipeSpeed * hs * slowMul;
     if (groundX <= -48) groundX += 48;
   }
 
@@ -925,40 +971,15 @@ function update() {
 
     emitTrail();
 
-    // Boru zamanlayıcı (yavaşlatma aktifse aralık da orantılı uzar ki borular üst üste binmesin!)
-    pipeTimer += slowMul;
-    if (pipeTimer >= d.pipeInterval) {
-      spawnPipe();
-      pipeTimer -= d.pipeInterval;
-    }
-
     const br = birdRadius();
     const pH = playH();
 
-    // Boruları güncelle
-    pipes.forEach(p => {
-      p.age += slowMul;
-      p.x -= p.virtSpeed * hs * slowMul;
-      let virtTop = p.baseTopV;
-      let virtGap = p.baseGapV;
-      if (p.type === 'moving') {
-        virtTop += Math.sin(p.phase + p.age * p.moveFreq) * p.moveAmpV;
-        virtTop = Math.max(48, Math.min(VIRT_PLAY_H - virtGap - 48, virtTop));
-      } else if (p.type === 'pulse') {
-        const delta = Math.sin(p.phase + p.age * 0.05) * p.pulseAmpV;
-        virtGap = Math.max(96, p.baseGapV + delta);
-        virtTop = p.baseTopV - delta * 0.5;
-      }
-      p.topH = virtTop * vs;
-      p.gap = virtGap * vs;
-    });
+    // Boruları, altınları ve güçlendirmeleri kaydır
+    stepWorldScroll(d, hs, vs, pH, slowMul);
 
-    // Altınları güncelle & topla
+    // Altın mıknatıs & toplama
     for (let i = coins.length - 1; i >= 0; i--) {
       const c = coins[i];
-      c.spin += 0.1;
-      c.x -= c.virtSpeed * hs * slowMul;
-      c.y = c.normY * pH;
       if (magnetFrames > 0) {
         const dx = bird.x - c.x, dy = bird.y - c.y;
         const dist = Math.hypot(dx, dy);
@@ -983,17 +1004,12 @@ function update() {
           });
         }
         coins.splice(i, 1);
-      } else if (c.x < -30) {
-        coins.splice(i, 1);
       }
     }
 
-    // Güçlendirmeleri güncelle & topla
+    // Güçlendirme mıknatıs & toplama
     for (let i = powers.length - 1; i >= 0; i--) {
       const pw = powers[i];
-      pw.bob += 0.08;
-      pw.x -= pw.virtSpeed * hs * slowMul;
-      pw.y = pw.normY * pH + Math.sin(pw.bob) * 5;
       if (magnetFrames > 0) {
         const dx = bird.x - pw.x, dy = bird.y - pw.y;
         const dist = Math.hypot(dx, dy);
@@ -1004,8 +1020,6 @@ function update() {
       }
       if (Math.hypot(bird.x - pw.x, bird.y - pw.y) < br + pw.r + 5) {
         activatePower(pw.type);
-        powers.splice(i, 1);
-      } else if (pw.x < -35) {
         powers.splice(i, 1);
       }
     }
@@ -1032,8 +1046,9 @@ function update() {
       die(true);
     }
     if (bird.y - br < -50) bird.y = -50 + br;
-
-    pipes = pipes.filter(p => p.x + p.w > -65);
+  } else if (specScrolling) {
+    // 1. oyuncu öldükten sonra 2. oyuncuyu canlı izlerken dünya borularla birebir aynı hızda akmaya devam eder!
+    stepWorldScroll(d, hs, vs, playH(), 1);
   }
 
   if (state === STATE.DYING) {
@@ -1041,6 +1056,17 @@ function update() {
     bird.y += bird.vy;
     bird.rot = Math.min(bird.rot + 0.09, Math.PI / 2);
     if (bird.y + birdRadius() >= playH()) killConfirm();
+  }
+
+  // İzleyici modunda rakip de öldüyse çarpma efektini izlettikten sonra sonuç ekranını aç
+  if (MP.spectating && MP.specEndFrames > 0) {
+    MP.oppBird.ty = Math.min(playH() - 12, MP.oppBird.ty + 5.2 * vs);
+    MP.oppBird.trot = Math.min(Math.PI / 2, MP.oppBird.trot + 0.11);
+    MP.specEndFrames--;
+    if (MP.specEndFrames === 0) {
+      MP.spectating = false;
+      mpFinishDuel();
+    }
   }
 
   // Partiküller, tüyler ve şok halkaları
@@ -1348,16 +1374,27 @@ function draw() {
     }
   }
 
-  // --- Rakip Kuş (Çevrimiçi Düello — İnterpolasyonlu) ---
-  if (MP.connected && MP.oppAlive && state !== STATE.GAMEOVER) {
-    MP.oppBird.x += (MP.oppBird.tx - MP.oppBird.x) * 0.35;
-    MP.oppBird.y += (MP.oppBird.ty - MP.oppBird.y) * 0.35;
-    MP.oppBird.rot += (MP.oppBird.trot - MP.oppBird.rot) * 0.35;
-    drawGhostBird(MP.oppBird.x, MP.oppBird.y, MP.oppBird.rot, MP.oppBird.skin, MP.oppName, true);
+  // --- Rakip Kuş (Çevrimiçi Düello — İzleyici Modunda %100 Canlı Odak!) ---
+  if (MP.connected && (MP.oppAlive || MP.specEndFrames > 0) && (state !== STATE.GAMEOVER || MP.spectating)) {
+    MP.oppBird.x += (MP.oppBird.tx - MP.oppBird.x) * 0.38;
+    MP.oppBird.y += (MP.oppBird.ty - MP.oppBird.y) * 0.38;
+    MP.oppBird.rot += (MP.oppBird.trot - MP.oppBird.rot) * 0.38;
+    drawGhostBird(
+      MP.oppBird.x,
+      MP.oppBird.y,
+      MP.oppBird.rot,
+      MP.oppBird.skin,
+      MP.spectating ? `🎥 ${MP.oppName} · ${MP.oppScore}` : MP.oppName,
+      true,
+      MP.spectating,
+      !MP.oppAlive
+    );
   }
 
-  // --- Ana Kuş ---
-  drawBird();
+  // --- Ana Kuş (İzleyici moduna geçince sahneyi rakibe bırakır) ---
+  if (!MP.spectating) {
+    drawBird();
+  }
 
   // --- Yüzen Puan Yazıları ---
   ctx.font = '900 18px "Segoe UI", Arial';
@@ -1375,8 +1412,11 @@ function draw() {
   ctx.textAlign = 'left';
   popups = popups.filter(p => p.life > 0);
 
-  // --- Çevrimiçi Geri Sayım ---
-  if (MP.connected) mpDrawCountdown();
+  // --- Çevrimiçi Geri Sayım & Canlı İzleyici Başlığı ---
+  if (MP.connected) {
+    mpDrawCountdown();
+    if (MP.spectating) mpDrawSpectatorTopBanner();
+  }
 
   // --- Şimşek & Çarpma Flaşı + Vinyet ---
   const totalFlash = Math.min(0.85, flashAlpha + lightningAlpha);
@@ -1756,24 +1796,49 @@ function drawBird() {
   }
 }
 
-function drawGhostBird(x, y, rot, skinKey, label, isOpponent = false) {
+function drawGhostBird(x, y, rot, skinKey, label, isOpponent = false, isFocusedSpectate = false, isDead = false) {
   const S = skinColors(skinKey);
+  const scaleMul = (isFocusedSpectate ? 1.0 : 0.88) * Math.min(1.15, Math.max(0.85, vScale()));
+
+  if (isFocusedSpectate) {
+    const pH = playH();
+    const shadowScale = Math.max(0.22, 1 - (pH - y) / (H * 0.6)) * scaleMul;
+    ctx.save();
+    ctx.globalAlpha = 0.24 * shadowScale;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(x, pH + 6, 14 * shadowScale, 4 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (!isDead) {
+      ctx.save();
+      const pulse = 0.35 + 0.2 * Math.sin(frames * 0.14);
+      ctx.strokeStyle = `rgba(0, 229, 255, ${pulse})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 22 * scaleMul, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   ctx.save();
-  ctx.globalAlpha = isOpponent ? 0.58 : 0.34;
+  ctx.globalAlpha = isFocusedSpectate ? 1.0 : (isOpponent ? 0.58 : 0.34);
   ctx.translate(x, y);
   ctx.rotate(rot);
-  drawBirdSprite(S, Math.sin(frames * 0.25), false, 0.88 * Math.min(1.15, Math.max(0.85, vScale())));
+  drawBirdSprite(S, isDead ? 0 : Math.sin(frames * 0.28), isDead, scaleMul);
   ctx.restore();
 
   if (label) {
     ctx.save();
-    ctx.globalAlpha = isOpponent ? 0.82 : 0.55;
-    ctx.font = '700 11px "Segoe UI", Arial';
+    ctx.globalAlpha = isFocusedSpectate ? 0.96 : (isOpponent ? 0.82 : 0.55);
+    ctx.font = isFocusedSpectate ? '800 13px "Segoe UI", Arial' : '700 11px "Segoe UI", Arial';
     ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillText(label, x + 1, y - 23);
-    ctx.fillStyle = isOpponent ? '#ffec8b' : '#b2ebf2';
-    ctx.fillText(label, x, y - 24);
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    ctx.fillText(label, x + 1, y - 25);
+    ctx.fillStyle = isFocusedSpectate ? '#ffd700' : (isOpponent ? '#ffec8b' : '#b2ebf2');
+    ctx.fillText(label, x, y - 26);
     ctx.restore();
   }
 }
@@ -2120,6 +2185,8 @@ const MP = {
   conn: null,
   isHost: false,
   connected: false,
+  spectating: false,
+  specEndFrames: 0,
   roomCode: '',
   myName: 'Sen',
   oppName: 'Rakip',
@@ -2191,6 +2258,9 @@ function mpMakeRoomCode() {
 
 function mpCleanup() {
   mpHostWaiting = false;
+  MP.spectating = false;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   mpClearTimers();
   mpReleaseWakeLock();
   if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
@@ -2531,12 +2601,26 @@ function setupConn() {
       }
       case 'score':
         MP.oppScore = data.s;
+        if (MP.spectating) {
+          sfx.score();
+          mpUpdateSpectateBar();
+        }
         break;
       case 'gameover':
-        if (MP.oppAlive) spawnFeathers(MP.oppBird.x, MP.oppBird.y, MP.oppBird.skin, 8);
+        if (MP.oppAlive) {
+          spawnFeathers(MP.oppBird.x, MP.oppBird.y, MP.oppBird.skin, 11);
+          if (MP.spectating) {
+            sfx.hit();
+            shakeT = 0.65;
+            flashAlpha = 0.35;
+          }
+        }
         MP.oppScore = data.s;
         MP.oppAlive = false;
-        if (state === STATE.GAMEOVER && MP.connected && !mpGameoverScreen.classList.contains('hidden')) {
+        mpUpdateSpectateBar();
+        if (MP.spectating) {
+          MP.specEndFrames = 38;
+        } else if (state === STATE.GAMEOVER && MP.connected && !mpGameoverScreen.classList.contains('hidden')) {
           mpFinishDuel();
         }
         break;
@@ -2552,13 +2636,69 @@ function setupConn() {
     if (state !== STATE.MENU) {
       mpCleanup();
       hide($('mp-opp-bar'));
+      hide($('mp-spectate-bar'));
       hide(mpGameoverScreen);
       goHome();
     }
   });
 }
 
+function mpShowSpectateBar() {
+  let bar = $('mp-spectate-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'mp-spectate-bar';
+    bar.className = 'mp-spectate-bar';
+    bar.innerHTML = `
+      <div class="mp-spec-left">
+        <span class="mp-live-dot"></span>
+        <span id="mp-spec-title">Canlı İzleniyor</span>
+      </div>
+      <span class="mp-spec-scores" id="mp-spec-scores">0 - 0</span>
+      <button type="button" class="mp-spec-exit" id="mp-spec-exit-btn">🏠 Çık</button>
+    `;
+    document.getElementById('game-wrapper').appendChild(bar);
+    const exitBtn = $('mp-spec-exit-btn');
+    if (exitBtn) exitBtn.addEventListener('click', mpLeave);
+  }
+  mpUpdateSpectateBar();
+  show(bar);
+}
+
+function mpUpdateSpectateBar() {
+  const t = $('mp-spec-title');
+  const s = $('mp-spec-scores');
+  if (t) t.textContent = MP.oppAlive ? `🎥 ${MP.oppName} uçuyor` : `💥 ${MP.oppName} çarptı!`;
+  if (s) s.textContent = `Sen: ${score} · O: ${MP.oppScore}`;
+}
+
+function mpDrawSpectatorTopBanner() {
+  ctx.save();
+  const txt = `🔴 CANLI İZLENİYOR — ${MP.oppName.toUpperCase()} (${MP.oppScore})`;
+  ctx.font = '800 13px "Segoe UI", Arial';
+  const tw = Math.max(190, ctx.measureText(txt).width + 28);
+  const bx = (W - tw) / 2, by = 14, bh = 30;
+  ctx.fillStyle = 'rgba(10, 18, 34, 0.76)';
+  ctx.strokeStyle = 'rgba(255, 82, 82, 0.65)';
+  ctx.lineWidth = 1.5;
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(bx, by, tw, bh, 15);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillRect(bx, by, tw, bh);
+    ctx.strokeRect(bx, by, tw, bh);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, W / 2, by + bh / 2 + 0.5);
+  ctx.restore();
+}
+
 function mpStartMatchUI() {
+  hide($('mp-spectate-bar'));
   let bar = $('mp-opp-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -2590,16 +2730,24 @@ function mpOnDeath() {
   $('mp-opp-label').textContent = MP.oppName || 'Rakip';
 
   if (MP.oppAlive) {
-    $('mp-result-text').textContent = `${MP.oppName} hâlâ uçuyor... sonuç bekleniyor!`;
+    // 2. oyuncu hâlâ hayatta -> ekranı kapatmak yerine CANLI İZLEYİCİ MODUNA geç!
+    MP.spectating = true;
+    MP.specEndFrames = 0;
     hide(gameoverScreen);
-    show(mpGameoverScreen);
+    hide(mpGameoverScreen);
     hide(hud);
+    hide($('mp-opp-bar'));
+    mpShowSpectateBar();
+    popups.push({ x: W / 2, y: H * 0.24, txt: `🎥 ${MP.oppName} canlı izleniyor!`, color: '#00E5FF', life: 60 });
   } else {
     mpFinishDuel();
   }
 }
 
 function mpFinishDuel() {
+  MP.spectating = false;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   $('mp-final-me').textContent = score;
   $('mp-final-opp').textContent = MP.oppScore;
   $('mp-me-label').textContent = MP.myName || 'Sen';
@@ -2619,12 +2767,16 @@ function mpLeave() {
   mpCleanup();
   hide(mpGameoverScreen);
   hide($('mp-opp-bar'));
+  hide($('mp-spectate-bar'));
   goHome();
 }
 
 let mpCountdown = 0;
 
 function mpBeginMatch() {
+  MP.spectating = false;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   if (MP.isHost) {
     MP.seed = Math.floor(Math.random() * 1e9);
     MP.matchDiff = F.difficulty;
@@ -2674,13 +2826,17 @@ function mpDrawCountdown() {
 
 function mpTick() {
   if (!MP.connected) return;
-  mpSend({
-    t: 'bird',
-    nx: Math.round((bird.x / Math.max(1, W)) * 1000) / 1000,
-    ny: Math.round((bird.y / Math.max(1, playH())) * 1000) / 1000,
-    r: Math.round(bird.rot * 100) / 100,
-    a: (state === STATE.PLAYING || state === STATE.READY)
-  });
+  if (!MP.spectating) {
+    mpSend({
+      t: 'bird',
+      nx: Math.round((bird.x / Math.max(1, W)) * 1000) / 1000,
+      ny: Math.round((bird.y / Math.max(1, playH())) * 1000) / 1000,
+      r: Math.round(bird.rot * 100) / 100,
+      a: (state === STATE.PLAYING || state === STATE.READY)
+    });
+  } else {
+    mpUpdateSpectateBar();
+  }
   mpUpdateLiveBar();
 }
 

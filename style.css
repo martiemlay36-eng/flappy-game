@@ -688,3 +688,65 @@ input[type="range"] {
   background: linear-gradient(180deg, rgba(37, 211, 102, .34), rgba(18, 140, 126, .38));
 }
 .mp-share-btn:active { transform: scale(0.95); }
+
+/* ---------- Canlı İzleyici Modu (Spectator Bar) ---------- */
+.mp-spectate-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 12px;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(8, 16, 30, 0.82);
+  border: 1.5px solid rgba(255, 82, 82, 0.55);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  pointer-events: auto;
+}
+.mp-spec-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 10px #ff3b3b;
+  flex-shrink: 0;
+  animation: mpLivePulse 1s infinite alternate;
+}
+@keyframes mpLivePulse {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0.35; transform: scale(0.78); }
+}
+.mp-spec-scores {
+  color: #ffd700;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.mp-spec-exit {
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mp-spec-exit:active { transform: scale(0.94); }

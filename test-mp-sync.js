@@ -415,6 +415,84 @@ async function flushMicrotasks() {
   }
   console.log('✅ MOBİL SEKMEDEN ÇIKIP DÖNME (NETWORK HATASI & ODA BULUNAMADI KURTARMA) TESTİ 3 OYUNDA DA GEÇTİ!');
 
+  // =========================================================================
+  // 5) 1. OYUNCU ÖLÜNCE 2. OYUNCUYU CANLI İZLEME (SPECTATOR MODE) TESTİ
+  // =========================================================================
+  {
+    // A) Flappy Kuş Canlı İzleyici Modu
+    const MockPeer = createPeerBroker();
+    const p1 = createClientSandbox('game.js', 420, 700, MockPeer);
+    const p2 = createClientSandbox('game.js', 360, 640, MockPeer);
+
+    p1.eval('mpHost()');
+    await flushMicrotasks();
+    p2.sandbox.document.getElementById('mp-code-input').value = p1.eval('MP.roomCode');
+    p2.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    for (let i = 0; i < 190; i++) { p1.stepFrame(); p2.stepFrame(); }
+
+    // P1 boruya çarpar (die(false) -> DYING -> GAMEOVER -> MP.spectating = true)
+    p1.eval('die(false)');
+    for (let i = 0; i < 60; i++) {
+      p2.eval('bird.y = playH() * 0.42; bird.vy = 0; phaseFrames = 10;');
+      p1.stepFrame();
+      p2.stepFrame();
+    }
+    assert.strictEqual(p1.eval('MP.spectating'), true, 'Flappy: P1 ölünce MP.spectating aktif olmalı');
+    assert.strictEqual(p1.sandbox.document.getElementById('mp-gameover-screen').classList.contains('hidden'), true, 'Flappy: P2 hayattayken sonuç ekranı kapalı kalmalı');
+
+    // 140 kare boyunca P1 izleyici modunda P2'yi izlesin — borular hala %100 senkron akmalı!
+    for (let i = 0; i < 140; i++) {
+      p2.eval('bird.y = playH() * 0.35; bird.vy = 0; phaseFrames = 10;');
+      p1.stepFrame();
+      p2.stepFrame();
+    }
+    const p1Pipes = p1.eval('pipes.map(p => +(p.x / W).toFixed(3))');
+    const p2Pipes = p2.eval('pipes.map(p => +(p.x / W).toFixed(3))');
+    assert.strictEqual(p1Pipes.length, p2Pipes.length, 'Flappy İzleyici: boru sayıları eşleşmeli');
+    for (let i = 0; i < p1Pipes.length; i++) {
+      assert.ok(Math.abs(p1Pipes[i] - p2Pipes[i]) <= 0.015, 'Flappy İzleyici: P1 öldükten sonra da borular P2 ile %100 senkron akmalı');
+    }
+
+    // Şimdi P2 de ölsün -> P1 çarpma animasyonunu izleyip (specEndFrames) sonuç ekranına geçmeli!
+    p2.eval('die(true)');
+    for (let i = 0; i < 45; i++) { p1.stepFrame(); p2.stepFrame(); }
+    assert.strictEqual(p1.eval('MP.spectating'), false, 'Flappy: P2 de ölünce izleyici modu kapanmalı');
+    assert.strictEqual(p1.sandbox.document.getElementById('mp-gameover-screen').classList.contains('hidden'), false, 'Flappy: İki oyuncu da ölünce sonuç ekranı açılmalı');
+
+    // B) Yılan Canlı İzleyici Modu
+    const MockPeer2 = createPeerBroker();
+    const s1 = createClientSandbox('snake.js', 420, 700, MockPeer2);
+    const s2 = createClientSandbox('snake.js', 360, 640, MockPeer2);
+
+    s1.eval('mpHost()');
+    await flushMicrotasks();
+    s2.sandbox.document.getElementById('mp-code-input').value = s1.eval('MP.roomCode');
+    s2.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    for (let i = 0; i < 195; i++) { s1.stepFrame(); s2.stepFrame(); }
+
+    // S1 ölür -> 26 kare sonra MP.spectating = true ve ekran açık kalır!
+    s1.eval('die()');
+    for (let i = 0; i < 35; i++) { s1.stepFrame(); s2.stepFrame(); }
+    assert.strictEqual(s1.eval('MP.spectating'), true, 'Snake: S1 ölünce MP.spectating aktif olmalı');
+    assert.strictEqual(s1.sandbox.document.getElementById('mp-gameover-screen').classList.contains('hidden'), true, 'Snake: S2 hayattayken sonuç ekranı kapalı kalmalı');
+
+    // S2 elma yerken S1 canlı izler ve yem senkron ilerler
+    s2.eval('snake[0] = { x: food.x - dir.x, y: food.y - dir.y }; step();');
+    assert.strictEqual(JSON.stringify(s1.eval('food')), JSON.stringify(s2.eval('food')), 'Snake İzleyici: S2 elma yediğinde S1 ekranında da yeni elma görünmeli');
+
+    // S2 de ölünce S1'de sonuç ekranı açılmalı!
+    s2.eval('die()');
+    for (let i = 0; i < 70; i++) { s1.stepFrame(); s2.stepFrame(); }
+    assert.strictEqual(s1.eval('MP.spectating'), false, 'Snake: S2 de ölünce izleyici modu bitmeli');
+    assert.strictEqual(s1.sandbox.document.getElementById('mp-gameover-screen').classList.contains('hidden'), false, 'Snake: İki oyuncu da ölünce sonuç ekranı açılmalı');
+
+    console.log('✅ CANLI İZLEYİCİ MODU (SPECTATOR MODE) TESTİ FLAPPY VE YILAN İÇİN GEÇTİ!');
+  }
+
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
 })().catch(err => {
   console.error('TEST HATASI:', err);

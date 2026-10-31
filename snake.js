@@ -218,11 +218,12 @@ function tickMusic() {
   if (!audioSettings.musicOn || audioSettings.volume <= 0.005) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (!audioCtx || audioCtx.state !== 'running') return;
-  if (state === STATE.PAUSED || state === STATE.GAMEOVER) return;
+  const isSpec = MP.connected && MP.spectating;
+  if (state === STATE.PAUSED || (state === STATE.GAMEOVER && !isSpec)) return;
 
   const idx = musicStep % 16;
   musicStep++;
-  if (state === STATE.PLAYING || state === STATE.READY) {
+  if (state === STATE.PLAYING || state === STATE.READY || isSpec) {
     playMusicTone(SNAKE_MELODY[idx], 0.14, 'triangle', 0.038);
     if (SNAKE_BASS[idx]) playMusicTone(SNAKE_BASS[idx], 0.22, 'sine', 0.045);
   } else if (idx % 2 === 0) {
@@ -764,7 +765,8 @@ function die() {
   updateCoinUI();
 
   if (MP.connected) {
-    setTimeout(() => { mpOnDeath(); }, 550);
+    mpSendSnakeNow();
+    MP.deathDelayFrames = 26;
     return;
   }
 
@@ -1225,39 +1227,42 @@ function draw() {
     ctx.restore();
   }
 
-  // Rakip Yılan (Çevrimiçi — Kendi yılanımızın altında çizilir)
+  // Rakip Yılan (Çevrimiçi — İzleyici modunda sahnenin tek yıldızı!)
   if (MP.connected && MP.oppSnake && MP.oppSnake.length) {
     const oppPts = oppDisplayPts();
     drawSnakeBody(oppPts, MP.oppSkin || 'cyber', MP.oppDir || { x: -1, y: 0 }, !MP.oppAlive, true);
     if (oppPts.length) {
+      const lbl = MP.spectating ? `🎥 ${MP.oppName} · ${MP.oppScore}` : MP.oppName;
       ctx.save();
-      ctx.font = '700 10px "Segoe UI", Arial';
+      ctx.font = MP.spectating ? '800 12px "Segoe UI", Arial' : '700 10px "Segoe UI", Arial';
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillText(MP.oppName, oppPts[0].x + 1, oppPts[0].y - cell * 0.66 + 1);
-      ctx.fillStyle = MP.oppAlive ? '#7ec8ff' : '#9fb8d1';
-      ctx.fillText(MP.oppName, oppPts[0].x, oppPts[0].y - cell * 0.66);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillText(lbl, oppPts[0].x + 1, oppPts[0].y - cell * 0.72 + 1);
+      ctx.fillStyle = MP.spectating ? '#ffd700' : (MP.oppAlive ? '#7ec8ff' : '#9fb8d1');
+      ctx.fillText(lbl, oppPts[0].x, oppPts[0].y - cell * 0.72);
       ctx.restore();
     }
   }
 
-  // Ana Yılan (Portal-güvenli interpolasyon!)
-  const n = snake.length;
-  const prog = state === STATE.PLAYING ? moveProgress : 0;
-  const pts = [];
-  for (let i = 0; i < n; i++) {
-    const cur = snake[i];
-    const prev = prevSnake && prevSnake[i] ? prevSnake[i] : cur;
-    const ref = i === 0 && prevSnake && prevSnake[0] ? prevSnake[0] : prev;
-    const jump = Math.abs(ref.x - cur.x) > 1 || Math.abs(ref.y - cur.y) > 1;
-    const ix = jump ? cur.x : cur.x + (ref.x - cur.x) * (1 - prog);
-    const iy = jump ? cur.y : cur.y + (ref.y - cur.y) * (1 - prog);
-    pts.push({
-      x: boardX + (ix + 0.5) * cell,
-      y: boardY + (iy + 0.5) * cell
-    });
+  // Ana Yılan (İzleyici moduna geçince ganimete dönüşüp sahneyi rakibe bırakır!)
+  if (!MP.spectating) {
+    const n = snake.length;
+    const prog = state === STATE.PLAYING ? moveProgress : 0;
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const cur = snake[i];
+      const prev = prevSnake && prevSnake[i] ? prevSnake[i] : cur;
+      const ref = i === 0 && prevSnake && prevSnake[0] ? prevSnake[0] : prev;
+      const jump = Math.abs(ref.x - cur.x) > 1 || Math.abs(ref.y - cur.y) > 1;
+      const ix = jump ? cur.x : cur.x + (ref.x - cur.x) * (1 - prog);
+      const iy = jump ? cur.y : cur.y + (ref.y - cur.y) * (1 - prog);
+      pts.push({
+        x: boardX + (ix + 0.5) * cell,
+        y: boardY + (iy + 0.5) * cell
+      });
+    }
+    drawSnakeBody(pts, S.skin, dir, state === STATE.GAMEOVER, false);
   }
-  drawSnakeBody(pts, S.skin, dir, state === STATE.GAMEOVER, false);
 
   // Üst Saha Çubukları: Sol = Kombo Süresi, Sağ = ⚡ Turbo Enerji
   if (state === STATE.PLAYING || state === STATE.READY) {
@@ -1308,7 +1313,10 @@ function draw() {
 
   ctx.restore();
 
-  if (MP.connected) mpDrawCountdown();
+  if (MP.connected) {
+    mpDrawCountdown();
+    if (MP.spectating) mpDrawSpectatorTopBanner();
+  }
 
   if (flashAlpha > 0) {
     flashAlpha = Math.max(0, flashAlpha - 0.04);
@@ -1381,6 +1389,22 @@ function loop(now) {
     } else {
       moveProgress = 0;
       tongueT += 0.05;
+      if (MP.connected && MP.spectating && bonusItem) {
+        bonusItem.ttl--;
+        if (bonusItem.ttl <= 0) bonusItem = null;
+      }
+    }
+
+    if (MP.deathDelayFrames > 0) {
+      MP.deathDelayFrames--;
+      if (MP.deathDelayFrames === 0) mpOnDeath();
+    }
+    if (MP.spectating && MP.specEndFrames > 0) {
+      MP.specEndFrames--;
+      if (MP.specEndFrames === 0) {
+        MP.spectating = false;
+        mpFinishDuel();
+      }
     }
 
     mpTick();
@@ -1523,6 +1547,7 @@ function goMenu() {
   hide(shopScreen); hide(lbScreen); hide(statsScreen);
   hide(mpScreen); hide(mpGameoverScreen);
   hide($('mp-opp-bar'));
+  hide($('mp-spectate-bar'));
   $('best-score-display').textContent = `🏆 Rekor: ${S.bestScore}`;
   updateCoinUI();
   renderMenuSkins();
@@ -1650,6 +1675,9 @@ if ($('stats-close-btn')) $('stats-close-btn').addEventListener('click', () => {
 const MP = {
   peer: null, conn: null,
   isHost: false, connected: false,
+  spectating: false,
+  deathDelayFrames: 0,
+  specEndFrames: 0,
   roomCode: '',
   myName: 'Sen',
   oppName: 'Rakip',
@@ -1720,6 +1748,10 @@ function mpMakeRoomCode() {
 
 function mpCleanup() {
   mpHostWaiting = false;
+  MP.spectating = false;
+  MP.deathDelayFrames = 0;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   mpClearTimers();
   mpReleaseWakeLock();
   if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
@@ -2054,12 +2086,27 @@ function setupConn() {
         storeOppFrame(data.s);
         if (data.d) MP.oppDir = data.d;
         MP.oppScore = data.sc;
-        if (MP.oppAlive && !data.a) spawnOpponentLoot();
+        if (MP.spectating && data.s && data.s.length) {
+          const [hx, hy] = data.s[0];
+          for (let i = lootApples.length - 1; i >= 0; i--) {
+            if (lootApples[i].x === hx && lootApples[i].y === hy) {
+              spawnBurst(hx, hy, '#FFD700', '#40C4FF', 9);
+              sfx.eat();
+              lootApples.splice(i, 1);
+            }
+          }
+          mpUpdateSpectateBar();
+        }
+        if (MP.oppAlive && !data.a && !MP.spectating) spawnOpponentLoot();
         MP.oppAlive = data.a;
         mpUpdateLiveBar();
         break;
       case 'eat':
         if (typeof data.seq === 'number' && data.seq >= foodSeq) {
+          if (MP.spectating && food) {
+            spawnBurst(food.x, food.y, 'rgba(255,80,80,0.95)', 'rgba(255,215,0,0.9)', 12);
+            sfx.eat();
+          }
           advanceFoodToSeq(data.seq + 1);
           if (MP.isHost && foodSeq > 0 && foodSeq % 3 === 0 && !bonusItem) {
             maybeSpawnBonus();
@@ -2073,14 +2120,34 @@ function setupConn() {
         }
         break;
       case 'bonus_eat':
+        if (MP.spectating && bonusItem) {
+          spawnBurst(bonusItem.x, bonusItem.y, '#FFD700', '#ffffff', 14);
+          sfx.bonus();
+        }
         bonusItem = null;
         break;
       case 'gameover':
-        if (MP.oppAlive) spawnOpponentLoot();
+        if (MP.oppAlive) {
+          if (MP.spectating) {
+            if (MP.oppSnake && MP.oppSnake.length) {
+              const [ox, oy] = MP.oppSnake[0];
+              spawnBurst(ox, oy, '#FF5252', '#ffffff', 18);
+            }
+            sfx.die();
+            shakeT = 0.65;
+            flashAlpha = 0.35;
+          } else {
+            spawnOpponentLoot();
+          }
+        }
         MP.oppScore = data.s;
         MP.oppAlive = false;
         mpUpdateLiveBar();
-        if (state === STATE.GAMEOVER && MP.connected && !mpGameoverScreen.classList.contains('hidden')) {
+        mpUpdateSpectateBar();
+        if (MP.spectating) {
+          MP.specEndFrames = 36;
+        } else if (state === STATE.GAMEOVER && MP.connected) {
+          MP.deathDelayFrames = 0;
           mpFinishDuel();
         }
         break;
@@ -2100,7 +2167,62 @@ function setupConn() {
   });
 }
 
+function mpShowSpectateBar() {
+  let bar = $('mp-spectate-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'mp-spectate-bar';
+    bar.className = 'mp-spectate-bar';
+    bar.innerHTML = `
+      <div class="mp-spec-left">
+        <span class="mp-live-dot"></span>
+        <span id="mp-spec-title">Canlı İzleniyor</span>
+      </div>
+      <span class="mp-spec-scores" id="mp-spec-scores">0 - 0</span>
+      <button type="button" class="mp-spec-exit" id="mp-spec-exit-btn">🏠 Çık</button>
+    `;
+    document.getElementById('game-wrapper').appendChild(bar);
+    const exitBtn = $('mp-spec-exit-btn');
+    if (exitBtn) exitBtn.addEventListener('click', mpLeave);
+  }
+  mpUpdateSpectateBar();
+  show(bar);
+}
+
+function mpUpdateSpectateBar() {
+  const t = $('mp-spec-title');
+  const s = $('mp-spec-scores');
+  if (t) t.textContent = MP.oppAlive ? `🎥 ${MP.oppName} oynuyor` : `💥 ${MP.oppName} elendi!`;
+  if (s) s.textContent = `Sen: ${score} · O: ${MP.oppScore}`;
+}
+
+function mpDrawSpectatorTopBanner() {
+  ctx.save();
+  const txt = `🔴 CANLI İZLENİYOR — ${MP.oppName.toUpperCase()} (${MP.oppScore})`;
+  ctx.font = '800 13px "Segoe UI", Arial';
+  const tw = Math.max(190, ctx.measureText(txt).width + 28);
+  const bx = (W - tw) / 2, by = 14, bh = 30;
+  ctx.fillStyle = 'rgba(10, 18, 34, 0.78)';
+  ctx.strokeStyle = 'rgba(255, 82, 82, 0.65)';
+  ctx.lineWidth = 1.5;
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(bx, by, tw, bh, 15);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillRect(bx, by, tw, bh);
+    ctx.strokeRect(bx, by, tw, bh);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, W / 2, by + bh / 2 + 0.5);
+  ctx.restore();
+}
+
 function mpStartMatchUI() {
+  hide($('mp-spectate-bar'));
   let bar = $('mp-opp-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -2121,6 +2243,10 @@ function mpUpdateLiveBar() {
 let mpCountdown = 0;
 
 function mpBeginMatch() {
+  MP.spectating = false;
+  MP.deathDelayFrames = 0;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   if (MP.isHost) {
     MP.seed = Math.floor(Math.random() * 1e9);
     MP.matchDiff = S.difficulty;
@@ -2169,22 +2295,40 @@ function mpDrawCountdown() {
 }
 
 function mpOnDeath() {
+  MP.deathDelayFrames = 0;
   if (!MP.connected) return;
   mpSend({ t: 'gameover', s: score });
   $('mp-final-me').textContent = score;
   $('mp-final-opp').textContent = MP.oppScore;
   $('mp-me-label').textContent = MP.myName || 'Sen';
   $('mp-opp-label').textContent = MP.oppName || 'Rakip';
+
   if (MP.oppAlive) {
-    $('mp-result-text').textContent = `${MP.oppName} hâlâ oynuyor...`;
-    show(mpGameoverScreen);
+    // Kendi yılanımızın bıraktığı ganimet elmaları sahnede göster ki rakibin toplamasını da canlı izleyelim!
+    for (let i = 0; i < snake.length; i += 2) {
+      const seg = snake[i];
+      if (!isObstacle(seg.x, seg.y)) {
+        lootApples.push({ x: seg.x, y: seg.y });
+      }
+    }
+    MP.spectating = true;
+    MP.specEndFrames = 0;
+    hide(gameoverScreen);
+    hide(mpGameoverScreen);
     hide(hud);
+    hide($('mp-opp-bar'));
+    mpShowSpectateBar();
+    popups.push({ x: W / 2, y: boardY + 34, txt: `🎥 ${MP.oppName} canlı izleniyor!`, color: '#00E5FF', life: 60 });
   } else {
     mpFinishDuel();
   }
 }
 
 function mpFinishDuel() {
+  MP.spectating = false;
+  MP.deathDelayFrames = 0;
+  MP.specEndFrames = 0;
+  hide($('mp-spectate-bar'));
   $('mp-final-me').textContent = score;
   $('mp-final-opp').textContent = MP.oppScore;
   $('mp-me-label').textContent = MP.myName || 'Sen';
@@ -2219,6 +2363,10 @@ function mpSendSnakeNow() {
 let mpSendAcc = 0;
 function mpTick() {
   if (!MP.connected) return;
+  if (MP.spectating) {
+    mpUpdateSpectateBar();
+    return;
+  }
   mpSendAcc++;
   if (mpSendAcc % 6 !== 0) return;
   mpSendSnakeNow();
