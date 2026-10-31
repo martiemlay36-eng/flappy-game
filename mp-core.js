@@ -442,7 +442,113 @@
       }
     }
     const cv = document.getElementById('mp-qr-canvas');
-    if (cv && url) renderQR(cv, url, 118);
+    if (cv && url) renderQR(cv, url, 104);
+  }
+
+  function mountHostGamePicker(hostAreaEl, currentGameId, onSelectGameFn) {
+    if (!hostAreaEl || typeof document === 'undefined') return null;
+    let bar = document.getElementById('mp-host-game-picker');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mp-host-game-picker';
+      bar.className = 'mp-switch-bar mp-host-picker';
+      bar.innerHTML = `
+        <span class="mp-switch-lbl" id="mp-host-picker-lbl">🎮 Oyunu Seç:</span>
+        <div class="mp-switch-btns" id="mp-host-picker-btns"></div>
+      `;
+      hostAreaEl.appendChild(bar);
+    }
+    const lbl = document.getElementById('mp-host-picker-lbl');
+    if (lbl) {
+      lbl.textContent = currentGameId === 'hub'
+        ? '🎮 İstersen Hemen Oyunu Seç (Aynı Kodla):'
+        : '🎮 Başka Oyuna Geç (Aynı Kodla):';
+    }
+    const btns = document.getElementById('mp-host-picker-btns');
+    if (btns) {
+      btns.innerHTML = '';
+      Object.keys(GAMES).forEach(gid => {
+        if (gid === currentGameId) return;
+        const g = GAMES[gid];
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'mp-game-chip';
+        b.textContent = `${g.icon} ${g.name}`;
+        b.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          if (onSelectGameFn) onSelectGameFn(gid);
+        });
+        btns.appendChild(b);
+      });
+    }
+    return bar;
+  }
+
+  function answerProbeIfAny(conn, gameId, roomCode, isBusy) {
+    if (!conn || !conn.metadata || !conn.metadata.probe) return false;
+    if (isBusy) {
+      try { conn.close(); } catch (e) {}
+      return true;
+    }
+    const reply = () => {
+      try { conn.send({ t: '_redirect', game: gameId, roomCode }); } catch (e) {}
+      setTimeout(() => { try { conn.close(); } catch (e) {} }, 180);
+    };
+    if (conn.open) reply();
+    else conn.on('open', reply);
+    return true;
+  }
+
+  function probeRoomAcrossGames(PeerClass, roomCode, skipPrefix, onFoundGame) {
+    if (!PeerClass || !roomCode) return null;
+    const targets = [
+      { prefix: 'hub-', id: 'hub' },
+      { prefix: 'flappy-', id: 'flappy' },
+      { prefix: 'snake-', id: 'snake' },
+      { prefix: 'pong-', id: 'pong' }
+    ].filter(x => x.prefix !== skipPrefix);
+    if (!targets.length) return null;
+
+    let done = false;
+    let probePeer = null;
+    const finish = (foundId) => {
+      if (done) return;
+      done = true;
+      if (probePeer) {
+        const p = probePeer;
+        probePeer = null;
+        setTimeout(() => { try { p.destroy(); } catch (e) {} }, 60);
+      }
+      if (foundId && onFoundGame) onFoundGame(foundId);
+    };
+
+    try {
+      probePeer = new PeerClass(null, PEER_OPTS);
+    } catch (e) {
+      return null;
+    }
+
+    const guardTimer = setTimeout(() => finish(null), 3200);
+    probePeer.on('open', () => {
+      if (done || !probePeer) return;
+      targets.forEach(tg => {
+        try {
+          const c = probePeer.connect(tg.prefix + roomCode, { reliable: true, metadata: { probe: true } });
+          if (!c) return;
+          c.on('data', d => {
+            if (d && d.t === '_redirect' && d.game) {
+              clearTimeout(guardTimer);
+              finish(d.game);
+            }
+          });
+        } catch (e) {}
+      });
+    });
+    probePeer.on('error', () => {});
+    return () => {
+      clearTimeout(guardTimer);
+      finish(null);
+    };
   }
 
   function updatePingDOM(pingMs) {
@@ -592,7 +698,12 @@
       row.id = 'mp-go-switch-row';
       row.className = 'mp-switch-bar mp-go-switch hidden';
       row.innerHTML = `<span class="mp-switch-lbl">🎮 Oda Bozulmadan Geç:</span><div class="mp-switch-btns" id="mp-go-switch-btns"></div>`;
-      mpGoScreenEl.appendChild(row);
+      const menuRow = mpGoScreenEl.querySelector ? mpGoScreenEl.querySelector('.menu-row') : null;
+      if (menuRow && menuRow.parentNode === mpGoScreenEl) {
+        mpGoScreenEl.insertBefore(row, menuRow);
+      } else {
+        mpGoScreenEl.appendChild(row);
+      }
     }
     const btns = document.getElementById('mp-go-switch-btns');
     if (btns) {
@@ -604,7 +715,10 @@
         b.type = 'button';
         b.className = 'mp-game-chip';
         b.textContent = `${g.icon} ${g.name}`;
-        b.addEventListener('click', () => onSwitchGameFn(gid));
+        b.addEventListener('click', (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          onSwitchGameFn(gid);
+        });
         btns.appendChild(b);
       });
     }
@@ -644,6 +758,9 @@
     encodeQRMatrix,
     renderQR,
     mountHostQR,
+    mountHostGamePicker,
+    answerProbeIfAny,
+    probeRoomAcrossGames,
     mountReadyRoom,
     renderReadyState,
     mountGameoverSwitcher,

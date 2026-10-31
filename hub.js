@@ -190,13 +190,18 @@ requestAnimationFrame(loop);
     isHost: false,
     connected: false,
     waiting: false,
+    switching: false,
+    targetSwitchFile: '',
     roomCode: '',
     myName: 'Ev Sahibi',
     oppName: 'Rakip',
     pingMs: 0,
     joinTries: 0,
+    idRetryCount: 0,
     timer: null,
-    pingInterval: null
+    switchTimer: null,
+    pingInterval: null,
+    cancelProbe: null
   };
 
   function getSavedName() {
@@ -250,7 +255,11 @@ requestAnimationFrame(loop);
 
   function cleanup() {
     HMP.waiting = false;
+    HMP.switching = false;
+    HMP.targetSwitchFile = '';
+    if (HMP.cancelProbe) { HMP.cancelProbe(); HMP.cancelProbe = null; }
     if (HMP.timer) { clearTimeout(HMP.timer); HMP.timer = null; }
+    if (HMP.switchTimer) { clearTimeout(HMP.switchTimer); HMP.switchTimer = null; }
     if (HMP.pingInterval) { clearInterval(HMP.pingInterval); HMP.pingInterval = null; }
     if (HMP.conn) { try { HMP.conn.close(); } catch (e) {} }
     if (HMP.peer) { try { HMP.peer.destroy(); } catch (e) {} }
@@ -258,14 +267,63 @@ requestAnimationFrame(loop);
   }
 
   function send(d) {
-    if (HMP.conn && HMP.connected) {
+    if (HMP.conn && (HMP.connected || HMP.conn.open)) {
       try { HMP.conn.send(d); } catch (e) {}
     }
+  }
+
+  function finishHostNavigate() {
+    const dest = HMP.targetSwitchFile;
+    if (!dest) return;
+    HMP.targetSwitchFile = '';
+    if (HMP.switchTimer) { clearTimeout(HMP.switchTimer); HMP.switchTimer = null; }
+    cleanup();
+    location.href = dest;
+  }
+
+  function pickGameAsHost(gid) {
+    if (!HMP.isHost || !MPC.GAMES[gid] || HMP.switching) return;
+    HMP.myName = HMP.myName || getMyName();
+
+    // 1) Arkadaş henüz bağlanmadıysa bile Ev Sahibi aynı oda koduyla hemen seçtiği oyuna geçebilir!
+    if (!HMP.connected) {
+      const code = HMP.roomCode || makeCode();
+      MPC.saveParty({
+        roomCode: code,
+        role: 'host',
+        myName: HMP.myName,
+        oppName: '',
+        targetGame: gid,
+        autoConnect: true
+      });
+      cleanup();
+      location.href = MPC.GAMES[gid].file;
+      return;
+    }
+
+    // 2) Arkadaş bağlıysa _switch_game + _switch_ack el sıkışmasıyla İKİSİ BİRDEN seçilen oyuna geçer!
+    HMP.switching = true;
+    HMP.targetSwitchFile = MPC.GAMES[gid].file;
+    const lbl = $('hub-picker-lbl');
+    if (lbl) lbl.textContent = `🚀 ${MPC.GAMES[gid].name} açılıyor...`;
+    MPC.saveParty({
+      roomCode: HMP.roomCode,
+      role: 'host',
+      myName: HMP.myName,
+      oppName: HMP.oppName,
+      targetGame: gid,
+      autoConnect: true
+    });
+    const pkt = { t: '_switch_game', game: gid, roomCode: HMP.roomCode };
+    send(pkt);
+    setTimeout(() => { if (HMP.switching) send(pkt); }, 110);
+    HMP.switchTimer = setTimeout(finishHostNavigate, 420);
   }
 
   function openModal() {
     hide(hubScreen);
     show(mpScreen);
+    show($('mp-name-input'));
     show($('mp-btn-row'));
     hide($('mp-host-area'));
     hide($('mp-join-area'));
@@ -276,6 +334,7 @@ requestAnimationFrame(loop);
   }
 
   function renderHubReady() {
+    hide($('mp-name-input'));
     hide($('mp-btn-row'));
     hide($('mp-host-area'));
     hide($('mp-join-area'));
@@ -291,9 +350,15 @@ requestAnimationFrame(loop);
   }
 
   function setupConn() {
-    HMP.conn.on('open', () => {
+    const conn = HMP.conn;
+    if (!conn) return;
+    let opened = false;
+    const onOpen = () => {
+      if (opened || HMP.conn !== conn) return;
+      opened = true;
       HMP.waiting = false;
       HMP.connected = true;
+      if (HMP.cancelProbe) { HMP.cancelProbe(); HMP.cancelProbe = null; }
       if (HMP.timer) { clearTimeout(HMP.timer); HMP.timer = null; }
       send({ t: 'hello', name: HMP.myName });
       renderHubReady();
@@ -302,9 +367,11 @@ requestAnimationFrame(loop);
         send({ t: '_ping', ts: Math.round(performance.now()) });
       }, 1000);
       send({ t: '_ping', ts: Math.round(performance.now()) });
-    });
+    };
+    if (conn.open) onOpen();
+    else conn.on('open', onOpen);
 
-    HMP.conn.on('data', data => {
+    conn.on('data', data => {
       if (!data || !data.t) return;
       if (data.t === '_ping') { send({ t: '_pong', ts: data.ts }); return; }
       if (data.t === '_pong') {
@@ -313,10 +380,17 @@ requestAnimationFrame(loop);
         MPC.updatePingDOM(HMP.pingMs);
         return;
       }
+      if (data.t === '_switch_ack') {
+        if (HMP.switching && HMP.isHost) finishHostNavigate();
+        return;
+      }
       if (data.t === 'hello') {
         if (data.name) HMP.oppName = String(data.name).slice(0, 12);
         renderHubReady();
       } else if (data.t === '_switch_game' && MPC.GAMES[data.game]) {
+        if (HMP.switching) return;
+        HMP.switching = true;
+        HMP.targetSwitchFile = MPC.GAMES[data.game].file;
         MPC.saveParty({
           roomCode: data.roomCode || HMP.roomCode,
           role: 'guest',
@@ -325,16 +399,21 @@ requestAnimationFrame(loop);
           targetGame: data.game,
           autoConnect: true
         });
-        cleanup();
-        location.href = MPC.GAMES[data.game].file;
+        send({ t: '_switch_ack', game: data.game });
+        HMP.switchTimer = setTimeout(finishHostNavigate, 90);
       } else if (data.t === '_leave') {
+        HMP.switching = true;
         cleanup();
         openModal();
         $('mp-error').textContent = 'Arkadaşın odadan ayrıldı.';
       }
     });
 
-    HMP.conn.on('close', () => {
+    conn.on('close', () => {
+      if (HMP.switching) {
+        if (HMP.targetSwitchFile) finishHostNavigate();
+        return;
+      }
       if (!HMP.connected) return;
       cleanup();
       openModal();
@@ -344,47 +423,66 @@ requestAnimationFrame(loop);
 
   function openHostPeer() {
     if (!HMP.waiting || HMP.connected || !HMP.roomCode) return;
+    if (HMP.timer) { clearTimeout(HMP.timer); HMP.timer = null; }
     if (HMP.peer) { try { HMP.peer.destroy(); } catch (e) {} HMP.peer = null; }
     const peer = new Peer('hub-' + HMP.roomCode, MPC.PEER_OPTS);
     HMP.peer = peer;
     peer.on('open', () => {
       if (HMP.peer !== peer) return;
+      HMP.idRetryCount = 0;
       $('mp-error').textContent = '';
       $('mp-room-code').textContent = HMP.roomCode;
-      $('mp-wait-text').textContent = '✅ Ortak oda hazır! QR okut veya kodu gönder.';
+      $('mp-wait-text').textContent = '✅ Ortak oda hazır! QR okut, kodu at veya hemen oyunu seç.';
       MPC.mountHostQR($('mp-host-area'), inviteUrl());
+      MPC.mountHostGamePicker($('mp-host-area'), 'hub', pickGameAsHost);
     });
     peer.on('connection', conn => {
-      if (HMP.peer !== peer || HMP.conn) return;
+      if (HMP.peer !== peer) return;
+      if (MPC.answerProbeIfAny(conn, 'hub', HMP.roomCode, HMP.connected)) return;
+      if (HMP.conn && HMP.connected) { try { conn.close(); } catch (e) {} return; }
+      if (HMP.conn) { try { HMP.conn.close(); } catch (e) {} }
       HMP.conn = conn;
       setupConn();
     });
     peer.on('disconnected', () => {
       if (HMP.peer !== peer || !HMP.waiting || HMP.connected) return;
-      HMP.timer = setTimeout(openHostPeer, 700);
+      $('mp-wait-text').textContent = '🔄 Arka plandan dönüldü, oda yenileniyor...';
+      HMP.timer = setTimeout(openHostPeer, 600);
     });
     peer.on('error', err => {
       if (HMP.peer !== peer || !HMP.waiting || HMP.connected) return;
       const tp = (err && err.type) || '';
       if (tp === 'unavailable-id') {
+        HMP.idRetryCount++;
+        if (HMP.idRetryCount <= 6) {
+          $('mp-wait-text').textContent = '🔄 Oda kodu yeniden bağlanıyor...';
+          HMP.timer = setTimeout(openHostPeer, 1400);
+          return;
+        }
+        HMP.idRetryCount = 0;
         HMP.roomCode = makeCode();
         $('mp-room-code').textContent = HMP.roomCode;
+        MPC.mountHostQR($('mp-host-area'), inviteUrl());
       }
       HMP.timer = setTimeout(openHostPeer, 1200);
     });
   }
 
-  function startHost() {
+  function startHost(existingCode) {
+    const keep = (typeof existingCode === 'string' && existingCode.length === 5) ? existingCode.toUpperCase() : '';
     cleanup();
     HMP.isHost = true;
     HMP.myName = getMyName();
-    HMP.roomCode = makeCode();
+    HMP.roomCode = keep || makeCode();
     HMP.waiting = true;
+    HMP.idRetryCount = 0;
+    hide($('mp-name-input'));
     hide($('mp-btn-row'));
     show($('mp-host-area'));
     $('mp-room-code').textContent = HMP.roomCode;
     $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
     MPC.mountHostQR($('mp-host-area'), inviteUrl());
+    MPC.mountHostGamePicker($('mp-host-area'), 'hub', pickGameAsHost);
     openHostPeer();
   }
 
@@ -395,11 +493,11 @@ requestAnimationFrame(loop);
     HMP.joinTries++;
     $('mp-join-status').textContent = HMP.joinTries === 1
       ? 'Bağlanılıyor...'
-      : `⏳ Ev sahibi bekleniyor... (${HMP.joinTries}/10)`;
+      : `⏳ Oda aranıyor... (${HMP.joinTries}/10)`;
     const peer = new Peer(null, MPC.PEER_OPTS);
     HMP.peer = peer;
     const retry = (msg) => {
-      if (HMP.peer !== peer || HMP.connected) return;
+      if (HMP.peer !== peer || HMP.connected || HMP.switching) return;
       if (HMP.joinTries < 10) HMP.timer = setTimeout(attemptJoin, 2000);
       else $('mp-join-status').textContent = msg || 'Oda bulunamadı!';
     };
@@ -409,17 +507,45 @@ requestAnimationFrame(loop);
       HMP.conn = peer.connect('hub-' + HMP.roomCode, { reliable: true });
       setupConn();
     });
-    peer.on('error', () => retry('Oda bulunamadı, kodu kontrol et!'));
+    peer.on('error', err => {
+      const tp = (err && err.type) || '';
+      // Ev sahibi odayı doğrudan bir oyunun içinde açtıysa otomatik o oyuna yönlen!
+      if (tp === 'peer-unavailable' && !HMP.cancelProbe) {
+        HMP.cancelProbe = MPC.probeRoomAcrossGames(Peer, HMP.roomCode, 'hub-', foundGame => {
+          if (HMP.connected || HMP.switching || !MPC.GAMES[foundGame]) return;
+          HMP.switching = true;
+          $('mp-join-status').textContent = `${MPC.GAMES[foundGame].icon} ${MPC.GAMES[foundGame].name} odası bulundu, geçiliyor...`;
+          MPC.saveParty({
+            roomCode: HMP.roomCode,
+            role: 'guest',
+            myName: HMP.myName,
+            oppName: 'Ev Sahibi',
+            targetGame: foundGame,
+            autoConnect: true
+          });
+          cleanup();
+          location.href = MPC.GAMES[foundGame].file;
+        });
+      }
+      retry('Oda bulunamadı, kodu kontrol et!');
+    });
   }
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && HMP.waiting && !HMP.connected) openHostPeer();
   });
+  window.addEventListener('focus', () => {
+    if (HMP.waiting && !HMP.connected) openHostPeer();
+  });
+  window.addEventListener('online', () => {
+    if (HMP.waiting && !HMP.connected) openHostPeer();
+  });
 
   $('hub-mp-btn').addEventListener('click', openModal);
-  $('mp-host-btn').addEventListener('click', startHost);
+  $('mp-host-btn').addEventListener('click', () => startHost());
   $('mp-join-btn').addEventListener('click', () => {
     HMP.myName = getMyName();
+    hide($('mp-name-input'));
     hide($('mp-btn-row'));
     show($('mp-join-area'));
   });
@@ -456,25 +582,14 @@ requestAnimationFrame(loop);
     }
   });
   document.querySelectorAll('#hub-picker-btns .mp-game-chip').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
       const gid = btn.dataset.game;
-      if (!HMP.isHost || !HMP.connected || !MPC.GAMES[gid]) return;
-      MPC.saveParty({
-        roomCode: HMP.roomCode,
-        role: 'host',
-        myName: HMP.myName,
-        oppName: HMP.oppName,
-        targetGame: gid,
-        autoConnect: true
-      });
-      send({ t: '_switch_game', game: gid, roomCode: HMP.roomCode });
-      setTimeout(() => {
-        cleanup();
-        location.href = MPC.GAMES[gid].file;
-      }, 60);
+      pickGameAsHost(gid);
     });
   });
   $('mp-quit-btn').addEventListener('click', () => {
+    HMP.switching = true;
     send({ t: '_leave' });
     MPC.clearParty();
     cleanup();
@@ -482,18 +597,37 @@ requestAnimationFrame(loop);
     show(hubScreen);
   });
 
-  try {
-    if (typeof location !== 'undefined' && location.search) {
-      const m = location.search.match(/[?&]room=([A-Za-z0-9]{5})/);
-      if (m && m[1]) {
-        const autoCode = m[1].toUpperCase();
-        if (history && history.replaceState) history.replaceState(null, '', location.pathname);
-        openModal();
-        hide($('mp-btn-row'));
-        show($('mp-join-area'));
-        $('mp-code-input').value = autoCode;
-        $('mp-join-confirm').click();
-      }
+  // 1) Oyun içinden ortak odaya yönlendirme varsa otomatik bağlan
+  const party = MPC.loadParty();
+  if (party && party.autoConnect && party.targetGame === 'hub') {
+    MPC.saveParty({ ...party, autoConnect: false });
+    openModal();
+    if ($('mp-name-input') && party.myName) $('mp-name-input').value = party.myName;
+    if (party.role === 'host') {
+      startHost(party.roomCode);
+    } else {
+      hide($('mp-name-input'));
+      hide($('mp-btn-row'));
+      show($('mp-join-area'));
+      $('mp-code-input').value = party.roomCode;
+      $('mp-join-confirm').click();
     }
-  } catch (e) {}
+  } else {
+    // 2) ?room=XXXXX linkinden gelindiyse otomatik katıl
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        const m = location.search.match(/[?&]room=([A-Za-z0-9]{5})/);
+        if (m && m[1]) {
+          const autoCode = m[1].toUpperCase();
+          if (history && history.replaceState) history.replaceState(null, '', location.pathname);
+          openModal();
+          hide($('mp-name-input'));
+          hide($('mp-btn-row'));
+          show($('mp-join-area'));
+          $('mp-code-input').value = autoCode;
+          $('mp-join-confirm').click();
+        }
+      }
+    } catch (e) {}
+  }
 })();

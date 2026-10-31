@@ -2237,6 +2237,8 @@ let mpHostWaiting = false;
 let mpReconnectTimer = null;
 let mpIdRetryCount = 0;
 let mpJoinTimer = null;
+let mpSwitchTimer = null;
+let mpCancelProbe = null;
 let mpJoinTries = 0;
 const MP_MAX_JOIN_TRIES = 10;
 let mpWakeLock = null;
@@ -2260,6 +2262,7 @@ function mpReleaseWakeLock() {
 function mpClearTimers() {
   if (mpReconnectTimer) { clearTimeout(mpReconnectTimer); mpReconnectTimer = null; }
   if (mpJoinTimer) { clearTimeout(mpJoinTimer); mpJoinTimer = null; }
+  if (mpSwitchTimer) { clearTimeout(mpSwitchTimer); mpSwitchTimer = null; }
 }
 
 function mpGetMyName() {
@@ -2285,6 +2288,8 @@ function mpCleanup() {
   MP.inLobby = false;
   MP.inMatch = false;
   MP.reconnecting = false;
+  MP.switching = false;
+  MP.switchDest = '';
   MP.graceFrames = 0;
   MP.myReady = false;
   MP.oppReady = false;
@@ -2293,6 +2298,7 @@ function mpCleanup() {
   hide($('mp-spectate-bar'));
   hide($('mp-grace-banner'));
   hide($('mp-ready-area'));
+  if (mpCancelProbe) { mpCancelProbe(); mpCancelProbe = null; }
   mpClearTimers();
   mpReleaseWakeLock();
   if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
@@ -2302,7 +2308,7 @@ function mpCleanup() {
 }
 
 function mpSend(data) {
-  if (MP.conn && MP.connected) {
+  if (MP.conn && (MP.connected || MP.conn.open)) {
     try { MP.conn.send(data); } catch (e) {}
   }
 }
@@ -2372,6 +2378,7 @@ function mpOpenUI() {
   hide(menuScreen);
   show(mpScreen);
   show($('mp-lobby'));
+  show($('mp-name-input'));
   show($('mp-btn-row'));
   $('mp-error').textContent = '';
   hide($('mp-host-area'));
@@ -2388,6 +2395,7 @@ function mpOpenReadyRoom() {
   if (!MP.lobbyDiff) MP.lobbyDiff = F.difficulty || 'normal';
   show(mpScreen);
   hide(menuScreen);
+  hide($('mp-name-input'));
   hide($('mp-btn-row'));
   hide($('mp-host-area'));
   hide($('mp-join-area'));
@@ -2454,10 +2462,39 @@ function mpToggleReady() {
   mpSetReady(!MP.myReady);
 }
 
+function mpFinishSwitchNavigate() {
+  const dest = MP.switchDest;
+  if (!dest) return;
+  MP.switchDest = '';
+  mpCleanup();
+  location.href = dest;
+}
+
 function mpSwitchGame(targetGame) {
-  if (!MPC || !MPC.GAMES[targetGame] || !MP.isHost || !MP.connected) return;
+  if (!MPC || !MPC.GAMES[targetGame] || !MP.isHost || MP.switching) return;
   sfx.click();
   MP.peerLeftCleanly = true;
+
+  // Arkadaş henüz bağlanmadıysa bile aynı 5 haneli oda koduyla hemen seçilen oyuna geç!
+  if (!MP.connected) {
+    const code = MP.roomCode || mpMakeRoomCode();
+    MPC.saveParty({
+      roomCode: code,
+      role: 'host',
+      myName: MP.myName || mpGetMyName(),
+      oppName: '',
+      targetGame,
+      autoConnect: true,
+      seriesMe: MP.seriesMe,
+      seriesOpp: MP.seriesOpp
+    });
+    mpCleanup();
+    location.href = MPC.GAMES[targetGame].file;
+    return;
+  }
+
+  MP.switching = true;
+  MP.switchDest = MPC.GAMES[targetGame].file;
   MPC.saveParty({
     roomCode: MP.roomCode,
     role: 'host',
@@ -2468,15 +2505,16 @@ function mpSwitchGame(targetGame) {
     seriesMe: MP.seriesMe,
     seriesOpp: MP.seriesOpp
   });
-  mpSend({
+  const pkt = {
     t: '_switch_game',
     game: targetGame,
     roomCode: MP.roomCode,
     sHost: MP.seriesMe,
     sGuest: MP.seriesOpp
-  });
-  mpCleanup();
-  location.href = MPC.GAMES[targetGame].file;
+  };
+  mpSend(pkt);
+  setTimeout(() => { if (MP.switching) mpSend(pkt); }, 110);
+  mpSwitchTimer = setTimeout(mpFinishSwitchNavigate, 420);
 }
 
 function mpScheduleHostReconnect(delayMs, forceRecreate) {
@@ -2504,13 +2542,18 @@ function mpOpenHostPeer() {
       $('mp-error').textContent = '';
       $('mp-room-code').textContent = MP.roomCode;
       $('mp-wait-text').textContent = '✅ Oda aktif! QR okut veya kodu gönder.';
-      if (MPC) MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
+      if (MPC) {
+        MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
+        MPC.mountHostGamePicker($('mp-host-area'), 'flappy', mpSwitchGame);
+      }
     }
   });
 
   peer.on('connection', conn => {
     if (MP.peer !== peer) return;
-    if (MP.conn) { try { conn.close(); } catch (e) {} return; }
+    if (MPC && MPC.answerProbeIfAny(conn, 'flappy', MP.roomCode, MP.connected)) return;
+    if (MP.conn && MP.connected) { try { conn.close(); } catch (e) {} return; }
+    if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
     mpHostWaiting = false;
     mpClearTimers();
     MP.conn = conn;
@@ -2585,6 +2628,7 @@ function mpHost(existingCode) {
   mpCleanup();
   MP.seriesMe = prevMe; MP.seriesOpp = prevOpp;
   MP.myName = mpGetMyName();
+  hide($('mp-name-input'));
   hide($('mp-btn-row'));
   hide($('mp-ready-area'));
   show($('mp-host-area'));
@@ -2598,7 +2642,10 @@ function mpHost(existingCode) {
   mpIdRetryCount = 0;
   $('mp-room-code').textContent = MP.roomCode;
   $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
-  if (MPC) MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
+  if (MPC) {
+    MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
+    MPC.mountHostGamePicker($('mp-host-area'), 'flappy', mpSwitchGame);
+  }
 
   mpRequestWakeLock();
   mpOpenHostPeer();
@@ -2607,6 +2654,7 @@ function mpHost(existingCode) {
 function mpJoin() {
   sfx.click();
   MP.myName = mpGetMyName();
+  hide($('mp-name-input'));
   hide($('mp-btn-row'));
   hide($('mp-ready-area'));
   show($('mp-join-area'));
@@ -2654,8 +2702,30 @@ function mpAttemptJoin() {
   });
 
   peer.on('error', err => {
-    if (MP.peer !== peer || MP.connected) return;
+    if (MP.peer !== peer || MP.connected || MP.switching) return;
     const type = (err && err.type) || '';
+    if (type === 'peer-unavailable' && MPC && !MP.reconnecting && !mpCancelProbe) {
+      mpCancelProbe = MPC.probeRoomAcrossGames(Peer, MP.roomCode, 'flappy-', foundGame => {
+        if (MP.connected || MP.switching) return;
+        MP.switching = true;
+        MP.peerLeftCleanly = true;
+        MPC.saveParty({
+          roomCode: MP.roomCode,
+          role: 'guest',
+          myName: MP.myName,
+          oppName: 'Ev Sahibi',
+          targetGame: foundGame,
+          autoConnect: true,
+          seriesMe: MP.seriesMe,
+          seriesOpp: MP.seriesOpp
+        });
+        const dest = foundGame === 'hub' ? 'index.html' : (MPC.GAMES[foundGame] && MPC.GAMES[foundGame].file);
+        if (dest) {
+          mpCleanup();
+          location.href = dest;
+        }
+      });
+    }
     if (type === 'peer-unavailable' || type === 'network' || type === 'disconnected' || type === 'socket-error') {
       retryOrFail('Oda bulunamadı, kodu kontrol et!');
     } else if (!MP.reconnecting) {
@@ -2755,7 +2825,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 
 function setupConn() {
-  MP.conn.on('open', () => {
+  const conn = MP.conn;
+  if (!conn) return;
+  let opened = false;
+  const onOpen = () => {
+    if (opened || MP.conn !== conn) return;
+    opened = true;
     mpClearTimers();
     mpHostWaiting = false;
     MP.connected = true;
@@ -2783,9 +2858,11 @@ function setupConn() {
     mpSend({ t: 'hello', skin: F.skin, name: MP.myName, diff: MP.lobbyDiff || F.difficulty });
     if (MPC) mpOpenReadyRoom();
     else if (MP.isHost) mpBeginMatch();
-  });
+  };
+  if (conn.open) onOpen();
+  else conn.on('open', onOpen);
 
-  MP.conn.on('data', data => {
+  conn.on('data', data => {
     if (!data || !data.t) return;
     MP.lastRxAt = performance.now();
     switch (data.t) {
@@ -2798,6 +2875,9 @@ function setupConn() {
         if (MPC) MPC.updatePingDOM(MP.pingMs);
         break;
       }
+      case '_switch_ack':
+        if (MP.switching && MP.isHost) mpFinishSwitchNavigate();
+        break;
       case '_leave':
         MP.peerLeftCleanly = true;
         if (MPC) MPC.clearParty();
@@ -2821,8 +2901,10 @@ function setupConn() {
         if (MP.spectating) mpUpdateSpectateBar();
         break;
       case '_switch_game':
-        if (MPC && MPC.GAMES[data.game]) {
+        if (MPC && MPC.GAMES[data.game] && !MP.switching) {
+          MP.switching = true;
           MP.peerLeftCleanly = true;
+          MP.switchDest = MPC.GAMES[data.game].file;
           MPC.saveParty({
             roomCode: data.roomCode || MP.roomCode,
             role: 'guest',
@@ -2833,8 +2915,8 @@ function setupConn() {
             seriesMe: typeof data.sGuest === 'number' ? data.sGuest : MP.seriesMe,
             seriesOpp: typeof data.sHost === 'number' ? data.sHost : MP.seriesOpp
           });
-          mpCleanup();
-          location.href = MPC.GAMES[data.game].file;
+          mpSend({ t: '_switch_ack', game: data.game });
+          mpSwitchTimer = setTimeout(mpFinishSwitchNavigate, 90);
         }
         break;
       case 'hello':
@@ -2920,8 +3002,12 @@ function setupConn() {
     }
   });
 
-  MP.conn.on('close', () => {
+  conn.on('close', () => {
     MP.connected = false;
+    if (MP.switching) {
+      if (MP.switchDest) mpFinishSwitchNavigate();
+      return;
+    }
     if (!MP.peerLeftCleanly && MP.inMatch && (state === STATE.PLAYING || state === STATE.READY || MP.spectating)) {
       mpEnterGraceReconnect();
       return;

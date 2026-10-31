@@ -52,8 +52,9 @@ function createPeerBroker() {
     emit(ev, payload) {
       (this.handlers[ev] || []).forEach(fn => fn(payload));
     }
-    connect(targetId) {
+    connect(targetId, opts) {
       const guestConn = new MockConn();
+      guestConn.metadata = (opts && opts.metadata) || null;
       if (MockPeer.offline) {
         Promise.resolve().then(() => this.emit('error', { type: 'network' }));
         return guestConn;
@@ -64,6 +65,7 @@ function createPeerBroker() {
         return guestConn;
       }
       const hostConn = new MockConn();
+      hostConn.metadata = (opts && opts.metadata) || null;
       guestConn.peerConn = hostConn;
       hostConn.peerConn = guestConn;
       Promise.resolve().then(() => {
@@ -552,6 +554,7 @@ async function flushMicrotasks() {
     await flushMicrotasks();
 
     // Saati 42ms ilerletip ping gönderelim -> _pong anında dönerken simNow - ts = 42ms ölçmeli!
+    host.eval('MP.pingMs = 0;');
     const tsSent = host.eval('Math.round(performance.now())');
     host.advanceClock(42);
     host.eval(`MP.conn.emit('data', { t: '_pong', ts: ${tsSent} })`);
@@ -587,8 +590,9 @@ async function flushMicrotasks() {
     assert.strictEqual(fHost.eval('MP.inLobby'), true, 'Tek oyuncu hazırken hala lobide beklenmeli');
     assert.strictEqual(fGuest.eval('MP.oppReady'), true, 'Guest Host hazır bilgisini görmeli');
 
-    // Seri skoru 2-1 iken Host odayı bozmadan PONG oyununa geçiş başlatsın!
+    // Seri skoru 2-1 iken Host odayı bozmadan PONG oyununa geçiş başlatsın (_switch_game + _switch_ack)!
     fHost.eval('MP.seriesMe = 2; MP.seriesOpp = 1; mpSwitchGame("pong");');
+    await new Promise(r => setTimeout(r, 110));
     assert.strictEqual(fHost.sandbox.location.href, 'pong.html', 'Host pong.html sayfasına yönlenmeli');
     assert.strictEqual(fGuest.sandbox.location.href, 'pong.html', 'Guest otomatik pong.html sayfasına yönlenmeli');
 
@@ -714,6 +718,49 @@ async function flushMicrotasks() {
     assert.ok(guest.eval('ball.vx > 0'), 'Gecikmiş eski yönlü Host paketi Guest yerel raket vuruşunu geri sarmamalı');
 
     console.log('✅ KATEGORİ 4 (RTT/2 GERİ SAYIM TELAFİSİ & PONG İSTEMCİ TAHMİNİ) TESTİ GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 10) EV SAHİBİ ANINDA OYUN SEÇİMİ & ÇAPRAZ ODA OTOMATİK YÖNLENDİRME (_redirect)
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const hostSess = {};
+    const guestSess = {};
+
+    // Senaryo A: Ev sahibi Ana Salon'da oda kurup daha konuk gelmeden hemen Yılan'ı seçsin!
+    const hubHost = createClientSandbox('hub.js', 420, 700, MockPeer, hostSess);
+    hubHost.sandbox.document.getElementById('mp-host-btn').dispatchEvent
+      ? null : null;
+    // Oda kurulsun ve henüz konuk yokken Flappy/Pong'da test edelim:
+    const fHost = createClientSandbox('game.js', 420, 700, MockPeer, hostSess);
+    fHost.eval('mpHost()');
+    await flushMicrotasks();
+    const code = fHost.eval('MP.roomCode');
+
+    // Ev sahibi daha konuk bağlanmadan doğrudan Yılan'ı seçebilmeli!
+    fHost.eval('mpSwitchGame("snake")');
+    assert.strictEqual(fHost.sandbox.location.href, 'snake.html', 'Ev sahibi konuk gelmeden de oyun seçebilmeli');
+
+    // Ev sahibi Yılan odasını aynı kodla açsın:
+    const sHost = createClientSandbox('snake.js', 420, 700, MockPeer, hostSess);
+    await flushMicrotasks();
+    assert.strictEqual(sHost.eval('MP.roomCode'), code, 'Yılan odası aynı 5 haneli kodu korumalı');
+
+    // Senaryo B: Konuk yanlışlıkla Pong ekranından bu kodu girse bile Yılan odasını otomatik bulup geçmeli!
+    const wrongGameGuest = createClientSandbox('pong.js', 360, 640, MockPeer, guestSess);
+    wrongGameGuest.sandbox.document.getElementById('mp-code-input').value = code;
+    wrongGameGuest.eval('mpJoinConfirm()');
+    await new Promise(r => setTimeout(r, 80));
+    assert.strictEqual(wrongGameGuest.sandbox.location.href, 'snake.html', 'Farklı ekrandan kod giren konuk otomatik Yılan odasına yönlenmeli');
+
+    // Konuk snake.html yüklediğinde Ev Sahibi ile otomatik bağlanmalı!
+    const sGuest = createClientSandbox('snake.js', 360, 640, MockPeer, guestSess);
+    await flushMicrotasks();
+    assert.strictEqual(sHost.eval('MP.connected && MP.inLobby'), true, 'Ev sahibi ve konuk Yılan lobisinde buluşmalı (Host)');
+    assert.strictEqual(sGuest.eval('MP.connected && MP.inLobby'), true, 'Ev sahibi ve konuk Yılan lobisinde buluşmalı (Guest)');
+
+    console.log('✅ EV SAHİBİ OYUN SEÇİMİ & ÇAPRAZ ODA OTOMATİK YÖNLENDİRME TESTİ GEÇTİ!');
   }
 
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
