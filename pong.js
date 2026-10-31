@@ -763,6 +763,45 @@ const MP = {
 
 const mpScreen = $('mp-screen'), mpGameoverScreen = $('mp-gameover-screen');
 
+const MP_PEER_OPTS = {
+  debug: 1,
+  pingInterval: 5000,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  }
+};
+
+let mpHostWaiting = false;
+let mpReconnectTimer = null;
+let mpIdRetryCount = 0;
+let mpJoinTimer = null;
+let mpJoinTries = 0;
+const MP_MAX_JOIN_TRIES = 10;
+let mpWakeLock = null;
+
+function mpRequestWakeLock() {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.wakeLock && navigator.wakeLock.request) {
+      navigator.wakeLock.request('screen').then(lock => { mpWakeLock = lock; }).catch(() => {});
+    }
+  } catch (e) {}
+}
+
+function mpReleaseWakeLock() {
+  try {
+    if (mpWakeLock && mpWakeLock.release) mpWakeLock.release().catch(() => {});
+  } catch (e) {}
+  mpWakeLock = null;
+}
+
+function mpClearTimers() {
+  if (mpReconnectTimer) { clearTimeout(mpReconnectTimer); mpReconnectTimer = null; }
+  if (mpJoinTimer) { clearTimeout(mpJoinTimer); mpJoinTimer = null; }
+}
+
 function mpGetMyName() {
   const inp = $('mp-name-input');
   const val = (inp ? inp.value.trim() : '') || P.playerName || '';
@@ -782,6 +821,9 @@ function mpMakeRoomCode() {
 }
 
 function mpCleanup() {
+  mpHostWaiting = false;
+  mpClearTimers();
+  mpReleaseWakeLock();
   if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
   if (MP.peer) { try { MP.peer.destroy(); } catch (e) {} }
   MP.conn = null; MP.peer = null;
@@ -790,6 +832,66 @@ function mpCleanup() {
 
 function mpSend(data) {
   if (MP.conn && MP.connected) { try { MP.conn.send(data); } catch (e) {} }
+}
+
+function mpGetInviteUrl() {
+  try {
+    if (typeof location !== 'undefined' && location.origin && location.pathname) {
+      return location.origin + location.pathname + '?room=' + MP.roomCode;
+    }
+  } catch (e) {}
+  return '?room=' + MP.roomCode;
+}
+
+function mpCopyText(txt) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(txt).then(() => true).catch(() => false);
+    }
+  } catch (e) {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return Promise.resolve(true);
+  } catch (e) {
+    return Promise.resolve(false);
+  }
+}
+
+function mpCopyCode() {
+  if (!MP.roomCode) return;
+  sfx.click();
+  mpCopyText(MP.roomCode).then(() => {
+    const btn = $('mp-copy-btn');
+    if (btn) {
+      btn.textContent = '✅ Kopyalandı!';
+      setTimeout(() => { btn.textContent = '📋 Kodu Kopyala'; }, 1800);
+    }
+  });
+}
+
+function mpShareInvite() {
+  if (!MP.roomCode) return;
+  sfx.click();
+  const url = mpGetInviteUrl();
+  const text = `🏓 Pong düellosuna gel! Oda Kodu: ${MP.roomCode}`;
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    navigator.share({ title: 'Pong Düellosu', text, url }).catch(() => {});
+    return;
+  }
+  mpCopyText(text + ' ' + url).then(() => {
+    const btn = $('mp-share-btn');
+    if (btn) {
+      btn.textContent = '✅ Link Kopyalandı!';
+      setTimeout(() => { btn.textContent = '📤 Davet Gönder'; }, 1800);
+    }
+  });
 }
 
 function mpOpenUI() {
@@ -805,32 +907,113 @@ function mpOpenUI() {
   if ($('mp-name-input')) $('mp-name-input').value = P.playerName || '';
 }
 
+function mpScheduleHostReconnect(delayMs, forceRecreate) {
+  if (mpReconnectTimer) clearTimeout(mpReconnectTimer);
+  mpReconnectTimer = setTimeout(() => {
+    mpReconnectTimer = null;
+    mpEnsureHostAlive(!!forceRecreate);
+  }, delayMs);
+}
+
+function mpOpenHostPeer() {
+  if (!mpHostWaiting || MP.connected || !MP.roomCode) return;
+  if (MP.peer) {
+    try { MP.peer.destroy(); } catch (e) {}
+    MP.peer = null;
+  }
+
+  const peer = new Peer('pong-' + MP.roomCode, MP_PEER_OPTS);
+  MP.peer = peer;
+
+  peer.on('open', () => {
+    if (MP.peer !== peer) return;
+    mpIdRetryCount = 0;
+    $('mp-error').textContent = '';
+    $('mp-room-code').textContent = MP.roomCode;
+    $('mp-wait-text').textContent = '✅ Oda aktif! Kodu gönderip bu ekranda bekle.';
+  });
+
+  peer.on('connection', conn => {
+    if (MP.peer !== peer) return;
+    if (MP.conn) { try { conn.close(); } catch (e) {} return; }
+    mpHostWaiting = false;
+    mpClearTimers();
+    MP.conn = conn;
+    setupConn();
+  });
+
+  peer.on('disconnected', () => {
+    if (MP.peer !== peer || !mpHostWaiting || MP.connected) return;
+    $('mp-error').textContent = '';
+    $('mp-wait-text').textContent = '🔄 Arka plandan dönüldü, oda yenileniyor...';
+    mpScheduleHostReconnect(500, false);
+  });
+
+  peer.on('error', err => {
+    if (MP.peer !== peer) return;
+    const type = (err && err.type) || '';
+    if (mpHostWaiting && !MP.connected) {
+      if (type === 'unavailable-id') {
+        mpIdRetryCount++;
+        if (mpIdRetryCount <= 6) {
+          $('mp-error').textContent = '';
+          $('mp-wait-text').textContent = '🔄 Oda kodu yeniden bağlanıyor...';
+          mpScheduleHostReconnect(1700, true);
+          return;
+        }
+        MP.roomCode = mpMakeRoomCode();
+        mpIdRetryCount = 0;
+        $('mp-room-code').textContent = MP.roomCode;
+        mpScheduleHostReconnect(300, true);
+        return;
+      }
+      if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed', 'webrtc'].includes(type)) {
+        $('mp-error').textContent = '';
+        $('mp-wait-text').textContent = '⏳ Sekmeden çıkıldığı için bağlantı uyudu — ekranda kal, yenileniyor...';
+        mpScheduleHostReconnect(1200, true);
+        return;
+      }
+    }
+    $('mp-error').textContent = 'Bağlantı hatası: ' + (type || 'bilinmiyor');
+  });
+}
+
+function mpEnsureHostAlive(forceRecreate) {
+  if (!mpHostWaiting || MP.connected || !MP.isHost || !MP.roomCode) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  mpRequestWakeLock();
+  if (forceRecreate || !MP.peer || MP.peer.destroyed) {
+    mpOpenHostPeer();
+    return;
+  }
+  if (MP.peer.disconnected || MP.peer.open === false) {
+    try {
+      MP.peer.reconnect();
+      mpScheduleHostReconnect(2200, true);
+    } catch (e) {
+      mpOpenHostPeer();
+    }
+  }
+}
+
 function mpHost() {
   sfx.click();
+  mpCleanup();
   MP.myName = mpGetMyName();
   hide($('mp-btn-row'));
   show($('mp-host-area'));
-  $('mp-room-code').textContent = '...';
-  $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
+  $('mp-error').textContent = '';
   mpHelloFromGuest = false;
 
   MP.roomCode = mpMakeRoomCode();
   MP.isHost = true;
+  mpHostWaiting = true;
+  mpIdRetryCount = 0;
+  $('mp-room-code').textContent = MP.roomCode;
+  $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
 
-  MP.peer = new Peer('pong-' + MP.roomCode, { debug: 1 });
-  MP.peer.on('open', () => {
-    $('mp-room-code').textContent = MP.roomCode;
-    $('mp-wait-text').textContent = 'Arkadaşın bekleniyor... kodu gönder!';
-  });
-  MP.peer.on('connection', conn => {
-    if (MP.conn) { try { conn.close(); } catch (e) {} return; }
-    MP.conn = conn;
-    setupConn();
-  });
-  MP.peer.on('error', err => {
-    $('mp-error').textContent = 'Bağlantı hatası: ' + (err && err.type ? err.type : 'bilinmiyor');
-    $('mp-room-code').textContent = '-----';
-  });
+  mpRequestWakeLock();
+  mpOpenHostPeer();
 }
 
 function mpJoin() {
@@ -838,25 +1021,82 @@ function mpJoin() {
   MP.myName = mpGetMyName();
   hide($('mp-btn-row'));
   show($('mp-join-area'));
+  $('mp-error').textContent = '';
   $('mp-join-status').textContent = '';
+}
+
+function mpAttemptJoin() {
+  if (MP.connected || MP.isHost || !MP.roomCode) return;
+  mpClearTimers();
+  if (MP.conn) { try { MP.conn.close(); } catch (e) {} MP.conn = null; }
+  if (MP.peer) { try { MP.peer.destroy(); } catch (e) {} MP.peer = null; }
+
+  mpJoinTries++;
+  $('mp-error').textContent = '';
+  $('mp-join-status').textContent = mpJoinTries === 1
+    ? 'Bağlanılıyor...'
+    : `⏳ Ev sahibinin oyuna dönmesi bekleniyor... (${mpJoinTries}/${MP_MAX_JOIN_TRIES})`;
+
+  const peer = new Peer(null, MP_PEER_OPTS);
+  MP.peer = peer;
+
+  const retryOrFail = (reason) => {
+    if (MP.peer !== peer || MP.connected) return;
+    mpClearTimers();
+    if (mpJoinTries < MP_MAX_JOIN_TRIES) {
+      mpJoinTimer = setTimeout(mpAttemptJoin, 2000);
+    } else {
+      $('mp-join-status').textContent = reason || 'Oda bulunamadı! Ev sahibinin oyun ekranında açık olduğundan emin ol.';
+    }
+  };
+
+  mpJoinTimer = setTimeout(() => {
+    if (!MP.connected && MP.peer === peer) retryOrFail('Oda yanıt vermedi, kodu ve ev sahibinin ekranını kontrol et.');
+  }, 3800);
+
+  peer.on('open', () => {
+    if (MP.peer !== peer || MP.connected) return;
+    MP.conn = peer.connect('pong-' + MP.roomCode, { reliable: true });
+    setupConn();
+  });
+
+  peer.on('error', err => {
+    if (MP.peer !== peer || MP.connected) return;
+    const type = (err && err.type) || '';
+    if (type === 'peer-unavailable' || type === 'network' || type === 'disconnected' || type === 'socket-error') {
+      retryOrFail('Oda bulunamadı, kodu kontrol et!');
+    } else {
+      mpClearTimers();
+      $('mp-join-status').textContent = 'Hata: ' + (type || 'bilinmiyor');
+    }
+  });
 }
 
 function mpJoinConfirm() {
   const code = $('mp-code-input').value.trim().toUpperCase();
   if (code.length !== 5) { $('mp-join-status').textContent = '5 haneli kod gir!'; return; }
   sfx.click();
+  mpCleanup();
   MP.myName = mpGetMyName();
-  $('mp-join-status').textContent = 'Bağlanılıyor...';
   MP.roomCode = code;
   MP.isHost = false;
+  mpJoinTries = 0;
+  mpAttemptJoin();
+}
 
-  MP.peer = new Peer(null, { debug: 1 });
-  MP.peer.on('open', () => {
-    MP.conn = MP.peer.connect('pong-' + code, { reliable: true });
-    setupConn();
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && mpHostWaiting && !MP.connected) {
+      mpEnsureHostAlive(false);
+    }
   });
-  MP.peer.on('error', err => {
-    $('mp-join-status').textContent = 'Hata: ' + (err && err.type === 'peer-unavailable' ? 'oda bulunamadı!' : (err.type || 'bilinmiyor'));
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('focus', () => {
+    if (mpHostWaiting && !MP.connected) mpEnsureHostAlive(false);
+  });
+  window.addEventListener('online', () => {
+    if (mpHostWaiting && !MP.connected) mpEnsureHostAlive(true);
   });
 }
 
@@ -864,6 +1104,8 @@ let mpHelloFromGuest = false;
 
 function setupConn() {
   MP.conn.on('open', () => {
+    mpClearTimers();
+    mpHostWaiting = false;
     MP.connected = true;
     mpSend({ t: 'hello', name: MP.myName });
     if (MP.isHost) {
@@ -1073,6 +1315,8 @@ $('mp-btn').addEventListener('click', mpOpenUI);
 $('mp-host-btn').addEventListener('click', mpHost);
 $('mp-join-btn').addEventListener('click', mpJoin);
 $('mp-join-confirm').addEventListener('click', mpJoinConfirm);
+if ($('mp-copy-btn')) $('mp-copy-btn').addEventListener('click', mpCopyCode);
+if ($('mp-share-btn')) $('mp-share-btn').addEventListener('click', mpShareInvite);
 $('mp-code-input').addEventListener('keydown', e => { if (e.key === 'Enter') mpJoinConfirm(); });
 $('mp-quit-btn').addEventListener('click', () => { sfx.click(); mpCleanup(); hide(mpScreen); goMenu(); });
 $('mp-rematch-btn').addEventListener('click', () => {
@@ -1681,6 +1925,24 @@ function init() {
   layout(false);
   updateSettingsUI();
   ensureMusicLoop();
+
+  // Davet linkinden (?room=XXXXX) gelindiyse otomatik odaya katıl!
+  try {
+    if (typeof location !== 'undefined' && location.search) {
+      const m = location.search.match(/[?&]room=([A-Za-z0-9]{5})/);
+      if (m && m[1]) {
+        const autoCode = m[1].toUpperCase();
+        if (typeof history !== 'undefined' && history.replaceState) {
+          history.replaceState(null, '', location.pathname);
+        }
+        mpOpenUI();
+        mpJoin();
+        $('mp-code-input').value = autoCode;
+        mpJoinConfirm();
+      }
+    }
+  } catch (e) {}
+
   requestAnimationFrame(loop);
 }
 

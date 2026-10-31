@@ -376,6 +376,45 @@ async function flushMicrotasks() {
     console.log('✅ PONG ONLINE SENKRON TESTİ GEÇTİ (1-nx ayna fizik, normalize hız/raket, ters skor %100 senkron)');
   }
 
+  // =========================================================================
+  // 4) MOBİL SEKMEDEN ÇIKMA (WHATSAPP KOD PAYLAŞIMI) KURTARMA TESTİ
+  // =========================================================================
+  for (const scriptFile of ['game.js', 'snake.js', 'pong.js']) {
+    const MockPeer = createPeerBroker();
+    const host = createClientSandbox(scriptFile, 360, 640, MockPeer);
+    const guest = createClientSandbox(scriptFile, 360, 640, MockPeer);
+
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    const savedCode = host.eval('MP.roomCode');
+
+    // Ev sahibi WhatsApp'a geçince tarayıcı soketi düşürür ve PeerJS 'network' hatası fırlatır:
+    host.eval('MP.peer.destroy(); MP.peer.emit("error", { type: "network" });');
+    await flushMicrotasks();
+
+    // Oda kodu ASLA '-----' olmamalı ve kırmızı hata basmamalı!
+    assert.strictEqual(host.sandbox.document.getElementById('mp-room-code').textContent, savedCode, `${scriptFile}: Sekmeden çıkınca oda kodu silinmemeli`);
+    assert.strictEqual(host.sandbox.document.getElementById('mp-error').textContent, '', `${scriptFile}: Sekmeden çıkınca network hatası ekrana basılmamalı`);
+
+    // Bu sırada arkadaşı kodu girip Katıl'a basar (ev sahibi henüz sekmede değil -> ilk deneme boşta kalır ama otomatik tekrar bekler)
+    guest.sandbox.document.getElementById('mp-code-input').value = savedCode;
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+    assert.strictEqual(guest.eval('MP.connected'), false, `${scriptFile}: Ev sahibi yokken henüz bağlanmamalı`);
+
+    // Ev sahibi WhatsApp'tan sekmeye geri döner -> AYNI ODA KODUYLA yeniden kayıt olur!
+    host.eval('mpEnsureHostAlive(true)');
+    await flushMicrotasks();
+
+    // Arkadaşının otomatik yeniden denemesi çalışır ve AYNI KODLA eşleşirler!
+    guest.eval('mpAttemptJoin()');
+    await flushMicrotasks();
+
+    assert.strictEqual(host.eval('MP.connected'), true, `${scriptFile}: Sekmeye dönünce aynı kodla Host bağlanmalı`);
+    assert.strictEqual(guest.eval('MP.connected'), true, `${scriptFile}: Sekmeye dönünce aynı kodla Guest bağlanmalı`);
+  }
+  console.log('✅ MOBİL SEKMEDEN ÇIKIP DÖNME (NETWORK HATASI & ODA BULUNAMADI KURTARMA) TESTİ 3 OYUNDA DA GEÇTİ!');
+
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
 })().catch(err => {
   console.error('TEST HATASI:', err);

@@ -663,3 +663,28 @@ input[type="range"] {
   font-weight: 700;
 }
 .sens-row input[type="range"] { width: 110px; }
+
+/* ---------- Çevrimiçi Oda Paylaşım & Kopyalama Satırı ---------- */
+.mp-share-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 8px 0 4px;
+}
+.mp-share-btn {
+  padding: 8px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 191, 255, .45);
+  background: linear-gradient(180deg, rgba(0, 191, 255, .28), rgba(0, 110, 180, .32));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform .1s, background .15s;
+}
+.mp-share-btn.whatsapp {
+  border-color: rgba(37, 211, 102, .55);
+  background: linear-gradient(180deg, rgba(37, 211, 102, .34), rgba(18, 140, 126, .38));
+}
+.mp-share-btn:active { transform: scale(0.95); }
