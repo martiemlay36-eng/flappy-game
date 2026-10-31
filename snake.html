@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Yılan</title>
 <meta name="theme-color" content="#0f2027">
-<link rel="stylesheet" href="style.css?v=mp6">
+<link rel="stylesheet" href="style.css?v=mp7">
 </head>
 <body>
 <div id="game-wrapper">
@@ -149,6 +149,7 @@
   <!-- Düello sonu -->
   <div id="mp-gameover-screen" class="overlay hidden">
     <h2 class="go-title">🏁 DÜELLO BİTTİ</h2>
+    <div id="mp-series-text" class="mp-series-pill">🏅 Seri: 0 - 0</div>
     <div class="score-panel">
       <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
       <div class="score-row"><span id="mp-opp-label">Rakip</span><span id="mp-final-opp">0</span></div>
@@ -202,6 +203,7 @@
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="snake.js?v=mp6"></script>
+<script src="mp-core.js?v=mp7"></script>
+<script src="snake.js?v=mp7"></script>
 </body>
 </html>

@@ -750,3 +750,285 @@ input[type="range"] {
   flex-shrink: 0;
 }
 .mp-spec-exit:active { transform: scale(0.94); }
+
+/* ---------- Ana Salon Ortak Oda Butonu ---------- */
+.hub-mp-btn {
+  margin-top: 4px;
+  font-size: 15px !important;
+  padding: 11px 22px !important;
+  background: linear-gradient(180deg, #00c6ff, #0072ff) !important;
+  box-shadow: 0 5px 0 #0047b3, 0 8px 20px rgba(0, 140, 255, 0.4) !important;
+}
+
+/* ---------- Saf JS QR Kod Kutusu ---------- */
+.mp-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  margin: 8px auto 6px;
+}
+.mp-qr-canvas {
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
+  border: 2px solid rgba(0, 210, 255, 0.55);
+  background: #fff;
+  image-rendering: pixelated;
+}
+.mp-qr-caption {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b3e5fc;
+  opacity: 0.92;
+}
+
+/* ---------- Canlı Ping & Bağlantı Kalitesi Rozeti ---------- */
+.mp-ping-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+.mp-ping-pill.ping-good {
+  background: rgba(0, 230, 118, 0.16);
+  border-color: rgba(0, 230, 118, 0.50);
+  color: #80ffba;
+}
+.mp-ping-pill.ping-mid {
+  background: rgba(255, 214, 0, 0.16);
+  border-color: rgba(255, 214, 0, 0.50);
+  color: #ffe57f;
+}
+.mp-ping-pill.ping-bad {
+  background: rgba(255, 82, 82, 0.20);
+  border-color: rgba(255, 82, 82, 0.55);
+  color: #ff9e9e;
+}
+
+/* ---------- Ortak Hazırlık Lobisi (Ready Room & Oda Ayarları) ---------- */
+.mp-ready-area {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: 100%;
+  margin-top: 4px;
+}
+.mp-ready-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mp-room-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0, 191, 255, 0.16);
+  border: 1px solid rgba(0, 191, 255, 0.42);
+  font-size: 12px;
+  color: #d8f3ff;
+}
+.mp-room-pill b {
+  color: #ffd700;
+  letter-spacing: 1.5px;
+}
+.mp-players-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mp-pcard {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.mp-pcard.ready {
+  background: rgba(0, 230, 118, 0.15);
+  border-color: rgba(0, 230, 118, 0.68);
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.22);
+}
+.mp-pname {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-pstatus {
+  font-size: 11px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.mp-pcard.ready .mp-pstatus { color: #69f0ae; }
+.mp-vs-badge {
+  font-size: 12px;
+  font-weight: 900;
+  color: #ffd700;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 215, 0, 0.14);
+  flex-shrink: 0;
+}
+
+.mp-ready-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.26);
+  padding: 7px 9px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+.mp-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mp-set-lbl {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #b3e5fc;
+}
+.mp-set-opts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.mp-set-chip {
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mp-set-chip.active {
+  background: linear-gradient(180deg, #00d2ff, #0078d7);
+  border-color: #80e5ff;
+  color: #fff;
+}
+.mp-set-chip:disabled {
+  cursor: default;
+  opacity: 0.88;
+}
+
+/* ---------- Oyunlar Arası Kopmadan Geçiş Çubuğu ---------- */
+.mp-switch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border-radius: 11px;
+  background: rgba(0, 191, 255, 0.10);
+  border: 1px dashed rgba(0, 191, 255, 0.38);
+}
+.mp-go-switch {
+  margin-top: 6px;
+  max-width: 330px;
+}
+.mp-switch-lbl {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #90caf9;
+}
+.mp-switch-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.mp-game-chip {
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 215, 0, 0.48);
+  background: linear-gradient(180deg, rgba(255, 215, 0, 0.22), rgba(255, 140, 0, 0.24));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.mp-game-chip:active { transform: scale(0.95); }
+
+.mp-ready-btn {
+  width: 100%;
+  margin-top: 2px;
+  font-size: 15px !important;
+  padding: 11px 16px !important;
+}
+.mp-ready-btn.is-ready {
+  background: linear-gradient(180deg, #26a69a, #00796b) !important;
+  box-shadow: 0 4px 0 #004d40 !important;
+}
+
+.mp-series-pill {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: 2px;
+}
+
+/* ---------- Maç İçi 12sn Kopma Koruması (Grace Reconnect) ---------- */
+.mp-grace-banner {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(5, 12, 24, 0.72);
+  backdrop-filter: blur(5px);
+}
+.mp-grace-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 310px;
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: rgba(12, 25, 46, 0.95);
+  border: 1.5px solid rgba(255, 193, 7, 0.65);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+.mp-grace-title {
+  font-size: 17px;
+  font-weight: 900;
+  color: #ffd54f;
+}
+.mp-grace-sub {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin: 0;
+  line-height: 1.4;
+}

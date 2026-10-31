@@ -155,6 +155,7 @@ function persist() {
 // ---------- Sabitler & Durum ----------
 const AI = { easy: 0.54, normal: 0.76, hard: 0.94 };
 const WIN_SCORE = 11;
+let currentWinScore = WIN_SCORE;
 
 const STATE = { MENU: 0, READY: 1, SERVE: 2, PLAYING: 3, GAMEOVER: 4, PAUSED: 5 };
 let state = STATE.MENU;
@@ -347,6 +348,7 @@ function serve() {
 
 function startGame() {
   getAC();
+  currentWinScore = WIN_SCORE;
   layout(false);
   scL = 0; scR = 0;
   rally = 0; matchBestRally = 0;
@@ -521,7 +523,7 @@ function scoreL() {
   sfx.goalMe();
   spawnGoalParticles(W - 22, ball.y, th.padL);
   updateScoreUI();
-  if (scL >= WIN_SCORE) { endGame(true); return; }
+  if (scL >= currentWinScore) { endGame(true); return; }
   state = STATE.READY;
   serveCountdown = 60;
   serveTo = -1;
@@ -537,7 +539,7 @@ function scoreR() {
   sfx.score();
   spawnGoalParticles(22, ball.y, th.padR);
   updateScoreUI();
-  if (scR >= WIN_SCORE) { endGame(false); return; }
+  if (scR >= currentWinScore) { endGame(false); return; }
   state = STATE.READY;
   serveCountdown = 60;
   serveTo = 1;
@@ -737,7 +739,7 @@ function humanMove() {
 }
 
 function togglePause() {
-  if (MP.connected) return;
+  if (MP.connected || MP.reconnecting) return;
   if (state === STATE.PLAYING || state === STATE.READY) {
     state = STATE.PAUSED;
     show(pauseScreen);
@@ -748,11 +750,25 @@ function togglePause() {
 }
 
 // =====================================================
-//        ÇEVRİMİÇİ DÜELLO (PeerJS) — Ayna Senkronlu
+//   ÇEVRİMİÇİ DÜELLO (PeerJS + MPCore) — Ayna & Tahminli
+// - 4G/5G Uyumlu Çoklu STUN + TURN Havuzu & Saf JS QR Kod
+// - Canlı Ping (RTT ms) + RTT/2 Saat-Bağımsız Geri Sayım
+// - Hazırlık Lobisi (Ready Room), Hedef Skor/Tema & Oyun Değiştirme
+// - Maç İçi 12sn Kopma Koruması + Guest İstemci Tahmini (Prediction)
 // =====================================================
+const MPC = typeof MPCore !== 'undefined' ? MPCore : null;
+
 const MP = {
   peer: null, conn: null,
   isHost: false, connected: false,
+  inLobby: false, inMatch: false,
+  reconnecting: false, graceFrames: 0, peerLeftCleanly: false,
+  myReady: false, oppReady: false,
+  lobbyWinScore: 11, lobbyTheme: null,
+  matchWinScore: 11, matchTheme: null,
+  pingMs: 0, lastRxAt: 0,
+  seriesMe: 0, seriesOpp: 0, scoredThisMatch: false,
+  localBounceCooldown: 0,
   roomCode: '',
   myName: 'Sen', oppName: 'Rakip',
   oppNormY: 0.4, oppTargetY: 280,
@@ -763,7 +779,7 @@ const MP = {
 
 const mpScreen = $('mp-screen'), mpGameoverScreen = $('mp-gameover-screen');
 
-const MP_PEER_OPTS = {
+const MP_PEER_OPTS = MPC ? MPC.PEER_OPTS : {
   debug: 1,
   pingInterval: 5000,
   config: {
@@ -781,6 +797,7 @@ let mpJoinTimer = null;
 let mpJoinTries = 0;
 const MP_MAX_JOIN_TRIES = 10;
 let mpWakeLock = null;
+let mpPingAcc = 0;
 
 function mpRequestWakeLock() {
   try {
@@ -822,6 +839,16 @@ function mpMakeRoomCode() {
 
 function mpCleanup() {
   mpHostWaiting = false;
+  MP.inLobby = false;
+  MP.inMatch = false;
+  MP.reconnecting = false;
+  MP.graceFrames = 0;
+  MP.myReady = false;
+  MP.oppReady = false;
+  MP.localBounceCooldown = 0;
+  hide($('mp-opp-bar'));
+  hide($('mp-grace-banner'));
+  hide($('mp-ready-area'));
   mpClearTimers();
   mpReleaseWakeLock();
   if (MP.conn) { try { MP.conn.close(); } catch (e) {} }
@@ -902,9 +929,121 @@ function mpOpenUI() {
   show($('mp-btn-row'));
   hide($('mp-host-area'));
   hide($('mp-join-area'));
+  hide($('mp-ready-area'));
   $('mp-join-status').textContent = '';
   $('mp-code-input').value = '';
   if ($('mp-name-input')) $('mp-name-input').value = P.playerName || '';
+}
+
+function mpOpenReadyRoom() {
+  MP.inLobby = true;
+  if (!MP.lobbyTheme) MP.lobbyTheme = P.theme || 'cyber';
+  if (!MP.lobbyWinScore) MP.lobbyWinScore = WIN_SCORE;
+  show(mpScreen);
+  hide(menuScreen);
+  hide($('mp-btn-row'));
+  hide($('mp-host-area'));
+  hide($('mp-join-area'));
+  $('mp-error').textContent = '';
+  if (MPC) {
+    const area = MPC.mountReadyRoom($('mp-lobby'), {
+      gameId: 'pong',
+      onToggleReady: mpToggleReady,
+      onSwitchGame: mpSwitchGame
+    });
+    show(area);
+    MPC.updatePingDOM(MP.pingMs);
+  }
+  mpRenderReadyRoom();
+}
+
+function mpRenderReadyRoom() {
+  if (!MPC) return;
+  const curWin = MP.lobbyWinScore || WIN_SCORE;
+  const curTheme = MP.lobbyTheme || P.theme || 'cyber';
+  MPC.renderReadyState({
+    roomCode: MP.roomCode,
+    isHost: MP.isHost,
+    myName: MP.myName,
+    oppName: MP.oppName,
+    myReady: MP.myReady,
+    oppReady: MP.oppReady,
+    settingsRows: [
+      {
+        label: 'Hedef Skor',
+        value: curWin,
+        options: [
+          { value: 5, label: '5 Puan' },
+          { value: 11, label: '11 Puan' },
+          { value: 15, label: '15 Puan' }
+        ],
+        onChange: val => {
+          sfx.click();
+          MP.lobbyWinScore = Number(val) || 11;
+          mpSend({ t: 'lobby_cfg', winScore: MP.lobbyWinScore, theme: MP.lobbyTheme || P.theme, name: MP.myName });
+          mpRenderReadyRoom();
+        }
+      },
+      {
+        label: 'Arena',
+        value: curTheme,
+        options: [
+          { value: 'cyber', label: '🌌 Siber' },
+          { value: 'ice', label: '❄️ Buz' },
+          { value: 'synth', label: '🌅 Synth' },
+          { value: 'court', label: '💚 Kort' }
+        ],
+        onChange: val => {
+          sfx.click();
+          P.theme = val;
+          MP.lobbyTheme = val;
+          updateSettingsUI();
+          persist();
+          mpSend({ t: 'lobby_cfg', winScore: MP.lobbyWinScore || WIN_SCORE, theme: val, name: MP.myName });
+          mpRenderReadyRoom();
+        }
+      }
+    ]
+  });
+}
+
+function mpSetReady(val) {
+  MP.myReady = !!val;
+  mpSend({ t: 'ready', r: MP.myReady });
+  mpRenderReadyRoom();
+  if (MP.isHost && MP.inLobby && MP.myReady && MP.oppReady) {
+    mpBeginMatch();
+  }
+}
+
+function mpToggleReady() {
+  sfx.click();
+  mpSetReady(!MP.myReady);
+}
+
+function mpSwitchGame(targetGame) {
+  if (!MPC || !MPC.GAMES[targetGame] || !MP.isHost || !MP.connected) return;
+  sfx.click();
+  MP.peerLeftCleanly = true;
+  MPC.saveParty({
+    roomCode: MP.roomCode,
+    role: 'host',
+    myName: MP.myName,
+    oppName: MP.oppName,
+    targetGame,
+    autoConnect: true,
+    seriesMe: MP.seriesMe,
+    seriesOpp: MP.seriesOpp
+  });
+  mpSend({
+    t: '_switch_game',
+    game: targetGame,
+    roomCode: MP.roomCode,
+    sHost: MP.seriesMe,
+    sGuest: MP.seriesOpp
+  });
+  mpCleanup();
+  location.href = MPC.GAMES[targetGame].file;
 }
 
 function mpScheduleHostReconnect(delayMs, forceRecreate) {
@@ -928,9 +1067,12 @@ function mpOpenHostPeer() {
   peer.on('open', () => {
     if (MP.peer !== peer) return;
     mpIdRetryCount = 0;
-    $('mp-error').textContent = '';
-    $('mp-room-code').textContent = MP.roomCode;
-    $('mp-wait-text').textContent = '✅ Oda aktif! Kodu gönderip bu ekranda bekle.';
+    if (!MP.reconnecting) {
+      $('mp-error').textContent = '';
+      $('mp-room-code').textContent = MP.roomCode;
+      $('mp-wait-text').textContent = '✅ Oda aktif! QR okut veya kodu gönder.';
+      if (MPC) MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
+    }
   });
 
   peer.on('connection', conn => {
@@ -944,8 +1086,10 @@ function mpOpenHostPeer() {
 
   peer.on('disconnected', () => {
     if (MP.peer !== peer || !mpHostWaiting || MP.connected) return;
-    $('mp-error').textContent = '';
-    $('mp-wait-text').textContent = '🔄 Arka plandan dönüldü, oda yenileniyor...';
+    if (!MP.reconnecting) {
+      $('mp-error').textContent = '';
+      $('mp-wait-text').textContent = '🔄 Arka plandan dönüldü, oda yenileniyor...';
+    }
     mpScheduleHostReconnect(500, false);
   });
 
@@ -955,26 +1099,31 @@ function mpOpenHostPeer() {
     if (mpHostWaiting && !MP.connected) {
       if (type === 'unavailable-id') {
         mpIdRetryCount++;
-        if (mpIdRetryCount <= 6) {
-          $('mp-error').textContent = '';
-          $('mp-wait-text').textContent = '🔄 Oda kodu yeniden bağlanıyor...';
-          mpScheduleHostReconnect(1700, true);
+        if (mpIdRetryCount <= 6 || MP.reconnecting) {
+          if (!MP.reconnecting) {
+            $('mp-error').textContent = '';
+            $('mp-wait-text').textContent = '🔄 Oda kodu yeniden bağlanıyor...';
+          }
+          mpScheduleHostReconnect(1500, true);
           return;
         }
         MP.roomCode = mpMakeRoomCode();
         mpIdRetryCount = 0;
         $('mp-room-code').textContent = MP.roomCode;
+        if (MPC) MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
         mpScheduleHostReconnect(300, true);
         return;
       }
       if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed', 'webrtc'].includes(type)) {
-        $('mp-error').textContent = '';
-        $('mp-wait-text').textContent = '⏳ Sekmeden çıkıldığı için bağlantı uyudu — ekranda kal, yenileniyor...';
+        if (!MP.reconnecting) {
+          $('mp-error').textContent = '';
+          $('mp-wait-text').textContent = '⏳ Sekmeden çıkıldığı için bağlantı uyudu — ekranda kal, yenileniyor...';
+        }
         mpScheduleHostReconnect(1200, true);
         return;
       }
     }
-    $('mp-error').textContent = 'Bağlantı hatası: ' + (type || 'bilinmiyor');
+    if (!MP.reconnecting) $('mp-error').textContent = 'Bağlantı hatası: ' + (type || 'bilinmiyor');
   });
 }
 
@@ -996,21 +1145,28 @@ function mpEnsureHostAlive(forceRecreate) {
   }
 }
 
-function mpHost() {
+function mpHost(existingCode) {
   sfx.click();
+  const keepCode = (typeof existingCode === 'string' && existingCode.length === 5) ? existingCode.toUpperCase() : '';
+  const prevMe = MP.seriesMe, prevOpp = MP.seriesOpp;
   mpCleanup();
+  MP.seriesMe = prevMe; MP.seriesOpp = prevOpp;
   MP.myName = mpGetMyName();
   hide($('mp-btn-row'));
+  hide($('mp-ready-area'));
   show($('mp-host-area'));
   $('mp-error').textContent = '';
-  mpHelloFromGuest = false;
 
-  MP.roomCode = mpMakeRoomCode();
+  MP.roomCode = keepCode || mpMakeRoomCode();
   MP.isHost = true;
+  MP.peerLeftCleanly = false;
+  MP.lobbyWinScore = WIN_SCORE;
+  MP.lobbyTheme = P.theme || 'cyber';
   mpHostWaiting = true;
   mpIdRetryCount = 0;
   $('mp-room-code').textContent = MP.roomCode;
   $('mp-wait-text').textContent = 'Sunucuya bağlanılıyor...';
+  if (MPC) MPC.mountHostQR($('mp-host-area'), mpGetInviteUrl());
 
   mpRequestWakeLock();
   mpOpenHostPeer();
@@ -1020,6 +1176,7 @@ function mpJoin() {
   sfx.click();
   MP.myName = mpGetMyName();
   hide($('mp-btn-row'));
+  hide($('mp-ready-area'));
   show($('mp-join-area'));
   $('mp-error').textContent = '';
   $('mp-join-status').textContent = '';
@@ -1032,10 +1189,12 @@ function mpAttemptJoin() {
   if (MP.peer) { try { MP.peer.destroy(); } catch (e) {} MP.peer = null; }
 
   mpJoinTries++;
-  $('mp-error').textContent = '';
-  $('mp-join-status').textContent = mpJoinTries === 1
-    ? 'Bağlanılıyor...'
-    : `⏳ Ev sahibinin oyuna dönmesi bekleniyor... (${mpJoinTries}/${MP_MAX_JOIN_TRIES})`;
+  if (!MP.reconnecting) {
+    $('mp-error').textContent = '';
+    $('mp-join-status').textContent = mpJoinTries === 1
+      ? 'Bağlanılıyor...'
+      : `⏳ Ev sahibinin oyuna dönmesi bekleniyor... (${mpJoinTries}/${MP_MAX_JOIN_TRIES})`;
+  }
 
   const peer = new Peer(null, MP_PEER_OPTS);
   MP.peer = peer;
@@ -1043,9 +1202,10 @@ function mpAttemptJoin() {
   const retryOrFail = (reason) => {
     if (MP.peer !== peer || MP.connected) return;
     mpClearTimers();
-    if (mpJoinTries < MP_MAX_JOIN_TRIES) {
-      mpJoinTimer = setTimeout(mpAttemptJoin, 2000);
-    } else {
+    const maxTries = MP.reconnecting ? 20 : MP_MAX_JOIN_TRIES;
+    if (mpJoinTries < maxTries) {
+      mpJoinTimer = setTimeout(mpAttemptJoin, MP.reconnecting ? 1200 : 2000);
+    } else if (!MP.reconnecting) {
       $('mp-join-status').textContent = reason || 'Oda bulunamadı! Ev sahibinin oyun ekranında açık olduğundan emin ol.';
     }
   };
@@ -1065,7 +1225,7 @@ function mpAttemptJoin() {
     const type = (err && err.type) || '';
     if (type === 'peer-unavailable' || type === 'network' || type === 'disconnected' || type === 'socket-error') {
       retryOrFail('Oda bulunamadı, kodu kontrol et!');
-    } else {
+    } else if (!MP.reconnecting) {
       mpClearTimers();
       $('mp-join-status').textContent = 'Hata: ' + (type || 'bilinmiyor');
     }
@@ -1076,63 +1236,216 @@ function mpJoinConfirm() {
   const code = $('mp-code-input').value.trim().toUpperCase();
   if (code.length !== 5) { $('mp-join-status').textContent = '5 haneli kod gir!'; return; }
   sfx.click();
+  const prevMe = MP.seriesMe, prevOpp = MP.seriesOpp;
   mpCleanup();
+  MP.seriesMe = prevMe; MP.seriesOpp = prevOpp;
   MP.myName = mpGetMyName();
   MP.roomCode = code;
   MP.isHost = false;
+  MP.peerLeftCleanly = false;
   mpJoinTries = 0;
   mpAttemptJoin();
 }
 
+function mpEnterGraceReconnect() {
+  if (MP.reconnecting) return;
+  MP.connected = false;
+  MP.reconnecting = true;
+  MP.graceFrames = 12 * 60;
+  mpClearTimers();
+  if (MP.conn) { try { MP.conn.close(); } catch (e) {} MP.conn = null; }
+  if (MP.peer) { try { MP.peer.destroy(); } catch (e) {} MP.peer = null; }
+
+  if (MPC) {
+    const banner = MPC.ensureGraceBanner(document.getElementById('game-wrapper'), mpLeave);
+    show(banner);
+  }
+  const sub = $('mp-grace-sub');
+  if (sub) sub.textContent = 'Rakibin bağlantısı koptu — maç duraklatıldı, yeniden bağlanılıyor (12 sn)';
+
+  if (MP.isHost) {
+    mpHostWaiting = true;
+    mpIdRetryCount = 0;
+    mpOpenHostPeer();
+  } else {
+    mpJoinTries = 0;
+    mpAttemptJoin();
+  }
+}
+
+function mpGraceTick() {
+  if (!MP.reconnecting) return;
+  MP.graceFrames--;
+  if (MP.graceFrames % 15 === 0) {
+    const sec = Math.max(1, Math.ceil(MP.graceFrames / 60));
+    const sub = $('mp-grace-sub');
+    if (sub) sub.textContent = `Rakibin bağlantısı koptu — maç duraklatıldı, yeniden bağlanılıyor (${sec} sn)`;
+  }
+  if (!MP.connected && MP.graceFrames > 0 && MP.graceFrames % 90 === 0) {
+    if (MP.isHost) mpEnsureHostAlive(true);
+    else mpAttemptJoin();
+  }
+  if (MP.graceFrames <= 0) {
+    mpCleanup();
+    goMenu();
+  }
+}
+
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && mpHostWaiting && !MP.connected) {
-      mpEnsureHostAlive(false);
+    if (!document.hidden && (mpHostWaiting || MP.reconnecting) && !MP.connected) {
+      if (MP.isHost) mpEnsureHostAlive(false);
+      else if (MP.reconnecting) mpAttemptJoin();
     }
   });
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('focus', () => {
-    if (mpHostWaiting && !MP.connected) mpEnsureHostAlive(false);
+    if ((mpHostWaiting || MP.reconnecting) && !MP.connected) {
+      if (MP.isHost) mpEnsureHostAlive(false);
+      else if (MP.reconnecting) mpAttemptJoin();
+    }
   });
   window.addEventListener('online', () => {
-    if (mpHostWaiting && !MP.connected) mpEnsureHostAlive(true);
+    if ((mpHostWaiting || MP.reconnecting) && !MP.connected) {
+      if (MP.isHost) mpEnsureHostAlive(true);
+      else if (MP.reconnecting) mpAttemptJoin();
+    }
   });
 }
-
-let mpHelloFromGuest = false;
 
 function setupConn() {
   MP.conn.on('open', () => {
     mpClearTimers();
     mpHostWaiting = false;
     MP.connected = true;
-    mpSend({ t: 'hello', name: MP.myName });
-    if (MP.isHost) {
-      setTimeout(() => {
-        if (MP.connected && !mpHelloFromGuest) {
-          mpHelloFromGuest = true;
-          mpBeginMatch();
-        }
-      }, 3000);
+    MP.peerLeftCleanly = false;
+    MP.lastRxAt = performance.now();
+    mpSend({ t: '_ping', ts: Math.round(performance.now()) });
+
+    if (MP.inMatch && MP.reconnecting) {
+      MP.reconnecting = false;
+      MP.graceFrames = 0;
+      hide($('mp-grace-banner'));
+      mpSend({
+        t: '_resume',
+        name: MP.myName,
+        sl: MP.isHost ? scL : undefined,
+        sr: MP.isHost ? scR : undefined
+      });
+      return;
     }
+
+    MP.inLobby = true;
+    MP.myReady = false;
+    MP.oppReady = false;
+    mpSend({
+      t: 'hello',
+      name: MP.myName,
+      winScore: MP.lobbyWinScore || WIN_SCORE,
+      theme: MP.lobbyTheme || P.theme
+    });
+    if (MPC) mpOpenReadyRoom();
+    else if (MP.isHost) mpBeginMatch();
   });
 
   MP.conn.on('data', data => {
     if (!data || !data.t) return;
+    MP.lastRxAt = performance.now();
     switch (data.t) {
+      case '_ping':
+        mpSend({ t: '_pong', ts: data.ts });
+        break;
+      case '_pong': {
+        const rtt = Math.max(1, performance.now() - (data.ts || 0));
+        MP.pingMs = MP.pingMs > 0 ? MP.pingMs * 0.65 + rtt * 0.35 : rtt;
+        if (MPC) MPC.updatePingDOM(MP.pingMs);
+        break;
+      }
+      case '_leave':
+        MP.peerLeftCleanly = true;
+        if (MPC) MPC.clearParty();
+        mpCleanup();
+        goMenu();
+        break;
+      case '_resume':
+        MP.reconnecting = false;
+        MP.graceFrames = 0;
+        hide($('mp-grace-banner'));
+        if (data.name) MP.oppName = String(data.name).slice(0, 12);
+        if (!MP.isHost && typeof data.sl === 'number' && typeof data.sr === 'number') {
+          scL = data.sr;
+          scR = data.sl;
+          updateScoreUI();
+        }
+        break;
+      case '_switch_game':
+        if (MPC && MPC.GAMES[data.game]) {
+          MP.peerLeftCleanly = true;
+          MPC.saveParty({
+            roomCode: data.roomCode || MP.roomCode,
+            role: 'guest',
+            myName: MP.myName,
+            oppName: MP.oppName,
+            targetGame: data.game,
+            autoConnect: true,
+            seriesMe: typeof data.sGuest === 'number' ? data.sGuest : MP.seriesMe,
+            seriesOpp: typeof data.sHost === 'number' ? data.sHost : MP.seriesOpp
+          });
+          mpCleanup();
+          location.href = MPC.GAMES[data.game].file;
+        }
+        break;
       case 'hello':
         if (data.name) MP.oppName = String(data.name).slice(0, 12);
-        if (MP.isHost && !mpHelloFromGuest) {
-          mpHelloFromGuest = true;
+        if (!MP.isHost) {
+          if (data.winScore) MP.lobbyWinScore = Number(data.winScore) || WIN_SCORE;
+          if (data.theme && THEMES[data.theme]) MP.lobbyTheme = data.theme;
+        }
+        if (MP.isHost) {
+          mpSend({
+            t: 'lobby_cfg',
+            winScore: MP.lobbyWinScore || WIN_SCORE,
+            theme: MP.lobbyTheme || P.theme,
+            name: MP.myName
+          });
+        }
+        if (!MP.inMatch) {
+          if (MPC) mpOpenReadyRoom();
+          else if (MP.isHost) mpBeginMatch();
+        }
+        break;
+      case 'lobby_cfg':
+        if (!MP.isHost) {
+          if (data.winScore) MP.lobbyWinScore = Number(data.winScore) || WIN_SCORE;
+          if (data.theme && THEMES[data.theme]) {
+            MP.lobbyTheme = data.theme;
+            P.theme = data.theme;
+            updateSettingsUI();
+          }
+        }
+        if (data.name) MP.oppName = String(data.name).slice(0, 12);
+        mpRenderReadyRoom();
+        break;
+      case 'ready':
+        MP.oppReady = !!data.r;
+        mpRenderReadyRoom();
+        if (MP.isHost && MP.inLobby && MP.myReady && MP.oppReady) {
           mpBeginMatch();
         }
         break;
       case 'match':
         if (!MP.isHost) {
           MP.connected = true;
+          MP.inLobby = false;
           if (data.name) MP.oppName = String(data.name).slice(0, 12);
-          mpBeginMatch();
+          if (data.winScore) MP.matchWinScore = Number(data.winScore) || WIN_SCORE;
+          if (data.theme && THEMES[data.theme]) {
+            MP.matchTheme = data.theme;
+            P.theme = data.theme;
+            updateSettingsUI();
+          }
+          mpBeginMatch(data.cd);
         }
         break;
       case 'paddle': {
@@ -1141,33 +1454,75 @@ function setupConn() {
         break;
       }
       case 'ball':
-        // Host -> Guest: Yatay AYNALAMA (1 - nx) sayesinde Guest de kendi raketini SOLDA kontrol eder!
+        // Host -> Guest: Yatay AYNALAMA (1 - nx) + RTT/2 İleri Projeksiyon + Yumuşak Uzlaştırma!
         if (!MP.isHost) {
           const th = THEMES[P.theme] || THEMES.cyber;
-          const prevVx = ball.vx;
-          ball.x = typeof data.nx === 'number' ? (1 - data.nx) * W : (W - data.x);
-          ball.y = typeof data.ny === 'number' ? data.ny * H : data.y;
-          ball.vx = typeof data.nvx === 'number' ? -data.nvx * W : -(data.vx || 0);
-          ball.vy = typeof data.nvy === 'number' ? data.nvy * H : (data.vy || 0);
-          ball.speed = Math.hypot(ball.vx, ball.vy) || 6;
-          ball.spin = data.sp || 0;
-          MP.ballFresh = true;
-
-          if ((prevVx < 0 && ball.vx > 0) || (prevVx > 0 && ball.vx < 0)) {
-            const isLeftHit = ball.vx > 0;
-            if (isLeftHit) { hitGlowL = 1; left.recoil = 6; } else { hitGlowR = 1; right.recoil = 6; }
-            sfx.paddle(ball.speed > 9.5);
-            spawnShockwave(ball.x, ball.y, isLeftHit ? th.padL : th.padR, 52);
-          }
+          const rxX = typeof data.nx === 'number' ? (1 - data.nx) * W : (W - data.x);
+          const rxY = typeof data.ny === 'number' ? data.ny * H : data.y;
+          const rxVx = typeof data.nvx === 'number' ? -data.nvx * W : -(data.vx || 0);
+          const rxVy = typeof data.nvy === 'number' ? data.nvy * H : (data.vy || 0);
+          const rxSp = data.sp || 0;
 
           // Guest açısından: sol skor = Guest (Host'un sr'si), sağ skor = Host (Host'un sl'si)
           const mySc = data.sr, oppSc = data.sl;
-          if (scL !== mySc || scR !== oppSc) {
-            if (mySc > scL) { scoreFlashL = 1; shakeT = 0.7; sfx.goalMe(); spawnGoalParticles(W - 22, ball.y, th.padL); }
-            if (oppSc > scR) { scoreFlashR = 1; shakeT = 0.7; sfx.score(); spawnGoalParticles(22, ball.y, th.padR); }
+          const scoreChanged = (scL !== mySc || scR !== oppSc);
+          if (scoreChanged) {
+            if (mySc > scL) { scoreFlashL = 1; shakeT = 0.7; sfx.goalMe(); spawnGoalParticles(W - 22, rxY, th.padL); }
+            if (oppSc > scR) { scoreFlashR = 1; shakeT = 0.7; sfx.score(); spawnGoalParticles(22, rxY, th.padR); }
             scL = mySc; scR = oppSc;
+            MP.localBounceCooldown = 0;
             updateScoreUI();
+            ball.x = rxX; ball.y = rxY;
+            ball.vx = rxVx; ball.vy = rxVy;
+            ball.speed = Math.hypot(rxVx, rxVy) || 6;
+            ball.spin = rxSp;
+            MP.ballFresh = true;
+          } else {
+            // Tek yönlü gecikme (pingMs/2) kadar topu ileri taşı
+            const leadFrames = Math.min(6, Math.max(0, ((MP.pingMs || 0) * 0.5) / (1000 / 60)));
+            let projX = rxX, projY = rxY, projVy = rxVy;
+            if (leadFrames > 0.05 && data.st === 3) {
+              projX += rxVx * leadFrames;
+              projY += (projVy + rxSp * 0.14) * leadFrames;
+              if (projY - ball.r < 4) { projY = 4 + ball.r + (4 + ball.r - projY); projVy = Math.abs(projVy); }
+              else if (projY + ball.r > H - 4) { projY = (H - 4 - ball.r) - (projY - (H - 4 - ball.r)); projVy = -Math.abs(projVy); }
+              if (rxVx < 0 && projX < padX1 + padW + ball.r && rxX >= padX1 + padW) {
+                projX = padX1 + padW + ball.r;
+              }
+            }
+
+            // Guest az önce kendi sol raketiyle yerel tahmin (prediction) yaptıysa ve Host paketi henüz eski yöndeyse ezme!
+            if (MP.localBounceCooldown > 0 && rxVx < 0) {
+              // Yerel vuruş korunuyor
+            } else {
+              const prevVx = ball.vx;
+              if (prevVx > 0 && rxVx < 0) {
+                hitGlowR = 1; right.recoil = 6;
+                sfx.paddle(Math.hypot(rxVx, projVy) > 9.5);
+                spawnShockwave(projX, projY, th.padR, 52);
+              } else if (prevVx < 0 && rxVx > 0 && MP.localBounceCooldown <= 0) {
+                hitGlowL = 1; left.recoil = 6;
+                sfx.paddle(Math.hypot(rxVx, projVy) > 9.5);
+                spawnShockwave(projX, projY, th.padL, 52);
+              }
+
+              const dist = Math.hypot(projX - ball.x, projY - ball.y);
+              const sameDir = (ball.vx * rxVx) > 0;
+              if (sameDir && dist < 46 && data.st === 3) {
+                ball.x += (projX - ball.x) * 0.45;
+                ball.y += (projY - ball.y) * 0.45;
+              } else {
+                ball.x = projX;
+                ball.y = projY;
+              }
+              ball.vx = rxVx;
+              ball.vy = projVy;
+              ball.speed = Math.hypot(ball.vx, ball.vy) || 6;
+              ball.spin = rxSp;
+              MP.ballFresh = true;
+            }
           }
+
           if (typeof data.st === 'number') {
             if (data.st === 3 && state === STATE.READY) state = STATE.PLAYING;
             else if (data.st === 1 && state === STATE.PLAYING) state = STATE.READY;
@@ -1186,6 +1541,10 @@ function setupConn() {
 
   MP.conn.on('close', () => {
     MP.connected = false;
+    if (!MP.peerLeftCleanly && MP.inMatch && (state === STATE.PLAYING || state === STATE.READY)) {
+      mpEnterGraceReconnect();
+      return;
+    }
     if (state !== STATE.MENU) {
       mpCleanup();
       goMenu();
@@ -1193,10 +1552,51 @@ function setupConn() {
   });
 }
 
+function mpStartMatchUI() {
+  hide($('mp-grace-banner'));
+  let bar = $('mp-opp-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'mp-opp-bar';
+    bar.className = 'mp-opp-bar';
+    document.getElementById('game-wrapper').appendChild(bar);
+  }
+  bar.innerHTML = `🏓 Hedef: <span class="opp-score">${currentWinScore}</span> <span id="mp-hud-ping" class="mp-ping-pill ping-idle">⚪ -- ms</span>`;
+  if (MPC) MPC.updatePingDOM(MP.pingMs);
+  show(bar);
+}
+
 let mpCountdown = 0;
 
-function mpBeginMatch() {
-  if (MP.isHost) mpSend({ t: 'match', name: MP.myName });
+function mpBeginMatch(guestCdFrames) {
+  MP.inLobby = false;
+  MP.inMatch = true;
+  MP.reconnecting = false;
+  MP.graceFrames = 0;
+  MP.myReady = false;
+  MP.oppReady = false;
+  MP.scoredThisMatch = false;
+  MP.localBounceCooldown = 0;
+  hide($('mp-grace-banner'));
+
+  const baseCd = 3 * 60;
+  if (MP.isHost) {
+    MP.matchWinScore = MP.lobbyWinScore || WIN_SCORE;
+    MP.matchTheme = MP.lobbyTheme || P.theme || 'cyber';
+    currentWinScore = MP.matchWinScore;
+    mpSend({
+      t: 'match',
+      name: MP.myName,
+      winScore: MP.matchWinScore,
+      theme: MP.matchTheme,
+      cd: baseCd
+    });
+    mpCountdown = baseCd;
+  } else {
+    currentWinScore = MP.matchWinScore || MP.lobbyWinScore || WIN_SCORE;
+    mpCountdown = MPC ? MPC.compensatedCountdownFrames(guestCdFrames || baseCd, MP.pingMs) : baseCd;
+  }
+
   layout(false);
   scL = 0; scR = 0;
   rally = 0; matchBestRally = 0;
@@ -1207,10 +1607,10 @@ function mpBeginMatch() {
   wallRipples = [];
   flashAlpha = 0;
   show(hud);
+  mpStartMatchUI();
   hide(menuScreen); hide(gameoverScreen); hide(pauseScreen);
   hide(mpScreen); hide(mpGameoverScreen);
   state = STATE.READY;
-  mpCountdown = 3 * 60;
   resetBall(1);
   MP.oppTargetY = H / 2 - padH / 2;
   MP.rematchVotes = 0;
@@ -1223,6 +1623,14 @@ function mpCountdownTick() {
   if (mpCountdown === 0) {
     state = STATE.PLAYING;
     resetBall(serveTo);
+  }
+}
+
+function mpBgTick() {
+  if (!MP.connected) return;
+  mpPingAcc++;
+  if (mpPingAcc % 60 === 0) {
+    mpSend({ t: '_ping', ts: Math.round(performance.now()) });
   }
 }
 
@@ -1251,27 +1659,77 @@ function mpStepPhysics() {
       });
     }
   } else if (state === STATE.PLAYING) {
-    // Guest paket gelmeyen ara karede hız vektörüyle %100 akıcı ilerletir
+    if (MP.localBounceCooldown > 0) MP.localBounceCooldown--;
+
     if (MP.ballFresh) {
       MP.ballFresh = false;
     } else {
+      if (Math.abs(ball.spin) > 0.002) {
+        ball.vy += ball.spin * 0.14;
+        ball.spin *= 0.992;
+      }
       ball.x += ball.vx;
       ball.y += ball.vy;
     }
+
+    // Guest Yerel Duvar & Sol Raket Tahmini (0ms Gecikmesiz Vuruş Hissi!)
+    const th = THEMES[P.theme] || THEMES.cyber;
+    if (ball.y - ball.r < 4) {
+      ball.y = 4 + ball.r;
+      ball.vy = Math.abs(ball.vy);
+      ball.squash = 0.65;
+      wallRipples.push({ x: ball.x, y: 3, w: 12, color: th.wall, life: 22, maxLife: 22 });
+      sfx.wall();
+    } else if (ball.y + ball.r > H - 4) {
+      ball.y = H - 4 - ball.r;
+      ball.vy = -Math.abs(ball.vy);
+      ball.squash = 0.65;
+      wallRipples.push({ x: ball.x, y: H - 3, w: 12, color: th.wall, life: 22, maxLife: 22 });
+      sfx.wall();
+    }
+
+    if (ball.vx < 0 && ball.x - ball.r <= padX1 + padW && ball.x - ball.r >= padX1 - 14) {
+      if (ball.y + ball.r + 4 >= left.y && ball.y - ball.r - 4 <= left.y + padH) {
+        ball.x = padX1 + padW + ball.r;
+        const rel = Math.max(-1, Math.min(1, (ball.y - (left.y + padH / 2)) / (padH / 2)));
+        const ang = rel * 1.02;
+        const maxSpd = 14.2 * Math.max(0.85, W / 420);
+        const sp = Math.min(maxSpd, (ball.speed || 6) + 0.32);
+        ball.speed = sp;
+        ball.vx = Math.cos(ang) * sp;
+        ball.vy = Math.sin(ang) * sp;
+        ball.spin = Math.max(-0.9, Math.min(0.9, left.vy * 0.055));
+        ball.squash = 1.0;
+        left.recoil = 6.5;
+        hitGlowL = 1;
+        MP.localBounceCooldown = 12;
+
+        const isFast = sp > 9.5 || Math.abs(ball.spin) > 0.35;
+        if (isFast) shakeT = 0.35;
+        sfx.paddle(isFast);
+        spawnShockwave(ball.x, ball.y, th.padL, isFast ? 72 : 48);
+        spawnHitParticles(ball.x, ball.y, th.padL, 1, isFast ? 18 : 11);
+      }
+    }
+
+    if (ball.squash > 0) ball.squash = Math.max(0, ball.squash - 0.12);
     ballTrail.push({ x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy });
     if (ballTrail.length > 18) ballTrail.shift();
   }
 }
 
 function mpOnScoreCheck() {
-  if (scL >= WIN_SCORE || scR >= WIN_SCORE) {
+  if (scL >= currentWinScore || scR >= currentWinScore) {
     mpSend({ t: 'end', sl: scL, sr: scR });
     mpMatchEnd(scL, scR);
   }
 }
 
 function mpMatchEnd(finalL, finalR) {
+  MP.inMatch = false;
   state = STATE.GAMEOVER;
+  hide($('mp-opp-bar'));
+  hide($('mp-grace-banner'));
   const my = MP.isHost ? finalL : finalR;
   const opp = MP.isHost ? finalR : finalL;
   $('mp-final-me').textContent = my;
@@ -1279,16 +1737,36 @@ function mpMatchEnd(finalL, finalR) {
   $('mp-me-label').textContent = MP.myName || 'Sen';
   $('mp-opp-label').textContent = MP.oppName || 'Rakip';
   let txt;
-  if (my > opp) { txt = '🏆 KAZANDIN!'; P.wins = (P.wins || 0) + 1; persist(); sfx.win(); }
-  else if (my < opp) { txt = '💀 KAYBETTİN...'; sfx.lose(); }
-  else txt = '🤝 BERABERE!';
+  if (my > opp) {
+    txt = '🏆 KAZANDIN!';
+    if (!MP.scoredThisMatch) {
+      MP.seriesMe++;
+      P.wins = (P.wins || 0) + 1;
+      persist();
+      MP.scoredThisMatch = true;
+    }
+    sfx.win();
+  } else if (my < opp) {
+    txt = '💀 KAYBETTİN...';
+    if (!MP.scoredThisMatch) { MP.seriesOpp++; MP.scoredThisMatch = true; }
+    sfx.lose();
+  } else {
+    txt = '🤝 BERABERE!';
+    MP.scoredThisMatch = true;
+  }
   $('mp-result-text').textContent = txt;
+  const serEl = $('mp-series-text');
+  if (serEl) serEl.textContent = `🏅 Seri: ${MP.myName} ${MP.seriesMe} - ${MP.seriesOpp} ${MP.oppName}`;
+  if (MPC) MPC.mountGameoverSwitcher(mpGameoverScreen, 'pong', () => MP.isHost && MP.connected, mpSwitchGame);
   show(mpGameoverScreen);
   hide(hud);
 }
 
 function mpLeave() {
   sfx.click();
+  MP.peerLeftCleanly = true;
+  mpSend({ t: '_leave' });
+  if (MPC) MPC.clearParty();
   mpCleanup();
   hide(mpGameoverScreen);
   goMenu();
@@ -1297,6 +1775,7 @@ function mpLeave() {
 function goMenu() {
   state = STATE.MENU;
   hide(hud); hide(gameoverScreen); hide(pauseScreen); hide(mpScreen); hide(mpGameoverScreen);
+  hide($('mp-opp-bar')); hide($('mp-grace-banner')); hide($('mp-ready-area'));
   updateSettingsUI();
   show(menuScreen);
 }
@@ -1312,13 +1791,21 @@ function mpPadTick() {
 
 // ---------- UI Olay Bağlantıları ----------
 $('mp-btn').addEventListener('click', mpOpenUI);
-$('mp-host-btn').addEventListener('click', mpHost);
+$('mp-host-btn').addEventListener('click', () => mpHost());
 $('mp-join-btn').addEventListener('click', mpJoin);
 $('mp-join-confirm').addEventListener('click', mpJoinConfirm);
 if ($('mp-copy-btn')) $('mp-copy-btn').addEventListener('click', mpCopyCode);
 if ($('mp-share-btn')) $('mp-share-btn').addEventListener('click', mpShareInvite);
 $('mp-code-input').addEventListener('keydown', e => { if (e.key === 'Enter') mpJoinConfirm(); });
-$('mp-quit-btn').addEventListener('click', () => { sfx.click(); mpCleanup(); hide(mpScreen); goMenu(); });
+$('mp-quit-btn').addEventListener('click', () => {
+  sfx.click();
+  MP.peerLeftCleanly = true;
+  mpSend({ t: '_leave' });
+  if (MPC) MPC.clearParty();
+  mpCleanup();
+  hide(mpScreen);
+  goMenu();
+});
 $('mp-rematch-btn').addEventListener('click', () => {
   sfx.click();
   if (!MP.connected) { mpLeave(); return; }
@@ -1774,7 +2261,7 @@ function draw() {
   }
 
   // --- 12) Servis & MP Geri Sayımları ---
-  if (!MP.connected && state === STATE.READY && serveCountdown > 0) {
+  if (!MP.connected && !MP.reconnecting && state === STATE.READY && serveCountdown > 0) {
     const n = Math.ceil(serveCountdown / 60);
     const phase = (serveCountdown % 60) / 60;
     ctx.save();
@@ -1791,7 +2278,7 @@ function draw() {
     ctx.restore();
   }
 
-  if (MP.connected && mpCountdown > 0) {
+  if ((MP.connected || MP.reconnecting) && mpCountdown > 0) {
     const n = Math.ceil(mpCountdown / 60);
     const phase = (mpCountdown % 60) / 60;
     ctx.save();
@@ -1814,7 +2301,7 @@ function draw() {
   }
 
   // MP Oyuncu İsim Plakaları
-  if (MP.connected && (state === STATE.PLAYING || state === STATE.READY)) {
+  if ((MP.connected || MP.reconnecting) && (state === STATE.PLAYING || state === STATE.READY)) {
     ctx.font = '800 11px "Segoe UI", Arial';
     ctx.textAlign = 'left';
     ctx.fillStyle = th.padL;
@@ -1868,6 +2355,12 @@ function loop(now) {
   while (acc >= STEP_MS) {
     acc -= STEP_MS;
     frames++;
+    mpBgTick();
+
+    if (MP.reconnecting) {
+      mpGraceTick();
+      continue;
+    }
 
     if (state === STATE.MENU) {
       stepMenuDemo();
@@ -1893,7 +2386,10 @@ function loop(now) {
           mpStepPhysics();
           mpPadTick();
         } else {
-          if (mpCountdown > 0) mpCountdown--;
+          if (mpCountdown > 0) {
+            mpCountdown--;
+            if (mpCountdown === 0 && state === STATE.READY) state = STATE.PLAYING;
+          }
           right.prevY = right.y;
           right.y += (MP.oppTargetY - right.y) * 0.45;
           right.vy = right.y - right.prevY;
@@ -1926,22 +2422,41 @@ function init() {
   updateSettingsUI();
   ensureMusicLoop();
 
-  // Davet linkinden (?room=XXXXX) gelindiyse otomatik odaya katıl!
-  try {
-    if (typeof location !== 'undefined' && location.search) {
-      const m = location.search.match(/[?&]room=([A-Za-z0-9]{5})/);
-      if (m && m[1]) {
-        const autoCode = m[1].toUpperCase();
-        if (typeof history !== 'undefined' && history.replaceState) {
-          history.replaceState(null, '', location.pathname);
-        }
-        mpOpenUI();
-        mpJoin();
-        $('mp-code-input').value = autoCode;
-        mpJoinConfirm();
-      }
+  // 1) Oyunlar arası ortak oda taşıma (sessionStorage Parti Oturumu)
+  const party = MPC ? MPC.loadParty() : null;
+  if (party && party.autoConnect && (!party.targetGame || party.targetGame === 'pong')) {
+    MPC.saveParty({ ...party, autoConnect: false });
+    MP.seriesMe = party.seriesMe || 0;
+    MP.seriesOpp = party.seriesOpp || 0;
+    if (party.myName) P.playerName = party.myName;
+    if (party.oppName) MP.oppName = party.oppName;
+    mpOpenUI();
+    if ($('mp-name-input') && party.myName) $('mp-name-input').value = party.myName;
+    if (party.role === 'host') {
+      mpHost(party.roomCode);
+    } else {
+      mpJoin();
+      $('mp-code-input').value = party.roomCode;
+      mpJoinConfirm();
     }
-  } catch (e) {}
+  } else {
+    // 2) Davet linkinden (?room=XXXXX) gelindiyse otomatik odaya katıl!
+    try {
+      if (typeof location !== 'undefined' && location.search) {
+        const m = location.search.match(/[?&]room=([A-Za-z0-9]{5})/);
+        if (m && m[1]) {
+          const autoCode = m[1].toUpperCase();
+          if (typeof history !== 'undefined' && history.replaceState) {
+            history.replaceState(null, '', location.pathname);
+          }
+          mpOpenUI();
+          mpJoin();
+          $('mp-code-input').value = autoCode;
+          mpJoinConfirm();
+        }
+      }
+    } catch (e) {}
+  }
 
   requestAnimationFrame(loop);
 }

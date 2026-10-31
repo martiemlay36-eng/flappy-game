@@ -53,8 +53,12 @@ function createPeerBroker() {
       (this.handlers[ev] || []).forEach(fn => fn(payload));
     }
     connect(targetId) {
-      const hostPeer = peers.get(targetId);
       const guestConn = new MockConn();
+      if (MockPeer.offline) {
+        Promise.resolve().then(() => this.emit('error', { type: 'network' }));
+        return guestConn;
+      }
+      const hostPeer = peers.get(targetId);
       if (!hostPeer) {
         Promise.resolve().then(() => this.emit('error', { type: 'peer-unavailable' }));
         return guestConn;
@@ -75,15 +79,28 @@ function createPeerBroker() {
       peers.delete(this.id);
     }
   }
+  MockPeer.offline = false;
 
   return MockPeer;
 }
 
-function createClientSandbox(scriptFile, width, height, MockPeer) {
+function createClientSandbox(scriptFile, width, height, MockPeer, customSessionStore) {
   const noop = () => {};
+  const ctx2d = {
+    setTransform: noop,
+    createLinearGradient: () => ({ addColorStop: noop }),
+    createRadialGradient: () => ({ addColorStop: noop }),
+    fillRect: noop, strokeRect: noop, clearRect: noop,
+    beginPath: noop, arc: noop, arcTo: noop, ellipse: noop,
+    moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop, closePath: noop,
+    fill: noop, stroke: noop, fillText: noop, strokeText: noop,
+    save: noop, restore: noop, translate: noop, rotate: noop, scale: noop,
+    setLineDash: noop, measureText: () => ({ width: 12 })
+  };
+
   const makeEl = () => {
     const classes = new Set(['hidden']);
-    return {
+    const el = {
       classList: {
         add: (...cs) => cs.forEach(c => classes.add(c)),
         remove: (...cs) => cs.forEach(c => classes.delete(c)),
@@ -101,38 +118,36 @@ function createClientSandbox(scriptFile, width, height, MockPeer) {
       style: {},
       dataset: {},
       appendChild: noop,
+      insertBefore: noop,
+      getContext: () => ctx2d,
       getBoundingClientRect: () => ({ left: 0, top: 0, width, height }),
       parentElement: { getBoundingClientRect: () => ({ left: 0, top: 0, width, height }) }
     };
-  };
-
-  const ctx2d = {
-    setTransform: noop,
-    createLinearGradient: () => ({ addColorStop: noop }),
-    createRadialGradient: () => ({ addColorStop: noop }),
-    fillRect: noop, strokeRect: noop, clearRect: noop,
-    beginPath: noop, arc: noop, arcTo: noop, ellipse: noop,
-    moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop, closePath: noop,
-    fill: noop, stroke: noop, fillText: noop, strokeText: noop,
-    save: noop, restore: noop, translate: noop, rotate: noop, scale: noop,
-    setLineDash: noop, measureText: () => ({ width: 12 })
+    return el;
   };
 
   const els = {};
   const canvasEl = { ...makeEl(), getContext: () => ctx2d, width, height };
-  let simNow = 0;
+  let simNow = 1000;
   let rafCb = null;
   const store = {};
+  const sess = customSessionStore || {};
 
   const sandbox = {
     console,
-    Math, Date, JSON, Object, Array, String, Number, Boolean, Set, Map, Promise,
-    parseInt, parseFloat, isNaN,
+    Math, Date, JSON, Object, Array, String, Number, Boolean, Set, Map, Promise, Uint8Array,
+    parseInt, parseFloat, isNaN, isFinite, Infinity,
     Peer: MockPeer,
     performance: { now: () => simNow },
     localStorage: {
       getItem: k => (k in store ? store[k] : null),
-      setItem: (k, v) => { store[k] = String(v); }
+      setItem: (k, v) => { store[k] = String(v); },
+      removeItem: k => { delete store[k]; }
+    },
+    sessionStorage: {
+      getItem: k => (k in sess ? sess[k] : null),
+      setItem: (k, v) => { sess[k] = String(v); },
+      removeItem: k => { delete sess[k]; }
     },
     document: {
       hidden: false,
@@ -151,7 +166,7 @@ function createClientSandbox(scriptFile, width, height, MockPeer) {
       AudioContext: undefined,
       webkitAudioContext: undefined
     },
-    location: { href: '' },
+    location: { href: '', origin: 'https://example.com', pathname: '/' + scriptFile.replace('.js', '.html'), search: '' },
     requestAnimationFrame: cb => { rafCb = cb; return 1; },
     setTimeout: fn => { /* kontrollü test */ return 0; },
     clearTimeout: noop,
@@ -159,9 +174,10 @@ function createClientSandbox(scriptFile, width, height, MockPeer) {
     clearInterval: noop
   };
   sandbox.window.document = sandbox.document;
+  sandbox.globalThis = sandbox;
 
-  // global let/const değişkenlerini okuyabilmek için yardımcı erişimciler ekleyelim
-  const code = fs.readFileSync(path.join(__dirname, scriptFile), 'utf8') + `
+  const mpCoreCode = fs.readFileSync(path.join(__dirname, 'mp-core.js'), 'utf8');
+  const code = mpCoreCode + '\n;' + fs.readFileSync(path.join(__dirname, scriptFile), 'utf8') + `
     ;globalThis.__test = {
       getState: () => state,
       getMP: () => MP,
@@ -176,6 +192,8 @@ function createClientSandbox(scriptFile, width, height, MockPeer) {
   return {
     sandbox,
     els,
+    sess,
+    advanceClock(ms) { simNow += ms; },
     stepFrame() {
       simNow += 1000 / 60;
       if (rafCb) {
@@ -188,6 +206,11 @@ function createClientSandbox(scriptFile, width, height, MockPeer) {
       return sandbox.__test.evalExpr(expr);
     }
   };
+}
+
+function bothReady(host, guest) {
+  host.eval('mpSetReady(true)');
+  guest.eval('mpSetReady(true)');
 }
 
 async function flushMicrotasks() {
@@ -217,6 +240,8 @@ async function flushMicrotasks() {
 
     assert.strictEqual(host.eval('MP.connected'), true, 'Flappy Host bağlı olmalı');
     assert.strictEqual(guest.eval('MP.connected'), true, 'Flappy Guest bağlı olmalı');
+    assert.strictEqual(host.eval('MP.inLobby'), true, 'Flappy bağlantı sonrası Hazırlık Lobisinde başlamalı');
+    bothReady(host, guest);
     assert.strictEqual(host.eval('MP.seed'), guest.eval('MP.seed'), 'Flappy RNG seed eşleşmeli');
 
     // 3sn geri sayımı geç (185 kare)
@@ -275,6 +300,7 @@ async function flushMicrotasks() {
 
     assert.strictEqual(host.eval('MP.connected'), true, 'Snake Host bağlı olmalı');
     assert.strictEqual(guest.eval('MP.connected'), true, 'Snake Guest bağlı olmalı');
+    bothReady(host, guest);
     assert.strictEqual(guest.eval('currentMode'), 'portal', 'Snake Guest Host oyun modunu (portal) almalı');
 
     // İlk yem her iki ekranda birebir aynı hücrede olmalı
@@ -333,6 +359,7 @@ async function flushMicrotasks() {
 
     assert.strictEqual(host.eval('MP.connected'), true, 'Pong Host bağlı olmalı');
     assert.strictEqual(guest.eval('MP.connected'), true, 'Pong Guest bağlı olmalı');
+    bothReady(host, guest);
 
     // 3sn geri sayımı bitir
     for (let i = 0; i < 185; i++) {
@@ -429,6 +456,7 @@ async function flushMicrotasks() {
     p2.sandbox.document.getElementById('mp-code-input').value = p1.eval('MP.roomCode');
     p2.eval('mpJoinConfirm()');
     await flushMicrotasks();
+    bothReady(p1, p2);
 
     for (let i = 0; i < 190; i++) { p1.stepFrame(); p2.stepFrame(); }
 
@@ -471,6 +499,7 @@ async function flushMicrotasks() {
     s2.sandbox.document.getElementById('mp-code-input').value = s1.eval('MP.roomCode');
     s2.eval('mpJoinConfirm()');
     await flushMicrotasks();
+    bothReady(s1, s2);
 
     for (let i = 0; i < 195; i++) { s1.stepFrame(); s2.stepFrame(); }
 
@@ -491,6 +520,200 @@ async function flushMicrotasks() {
     assert.strictEqual(s1.sandbox.document.getElementById('mp-gameover-screen').classList.contains('hidden'), false, 'Snake: İki oyuncu da ölünce sonuç ekranı açılmalı');
 
     console.log('✅ CANLI İZLEYİCİ MODU (SPECTATOR MODE) TESTİ FLAPPY VE YILAN İÇİN GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 6) KATEGORİ 1: 4G/5G TURN ICE HAVUZU, SAF JS QR KOD & CANLI PING ÖLÇÜMÜ
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const host = createClientSandbox('game.js', 420, 700, MockPeer);
+    const guest = createClientSandbox('game.js', 360, 640, MockPeer);
+
+    // A) TURN + Çoklu STUN yapılandırması doğrulaması
+    const hasTurnTcp = host.eval('MPCore.PEER_OPTS.config.iceServers.some(s => Array.isArray(s.urls) && s.urls.some(u => u.includes("turn:openrelay.metered.ca:443?transport=tcp")))');
+    assert.strictEqual(hasTurnTcp, true, '4G/5G CGNAT için TCP 443 TURN sunucusu tanımlı olmalı');
+
+    // B) Saf JS ISO/IEC 18004 QR Kod matris ve köşe bulucu (finder pattern) doğrulaması
+    const qrCheck = host.eval(`(() => {
+      const q = MPCore.encodeQRMatrix("https://example.com/flappy.html?room=KZ84P");
+      if (!q || !q.modules || q.size < 29) return false;
+      const m = q.modules, N = q.size;
+      // 3 köşedeki 7x7 finder pattern merkezleri (3,3), (3,N-4), (N-4,3) koyu (1) olmalı
+      return m[3][3] === 1 && m[3][N - 4] === 1 && m[N - 4][3] === 1 && m[0][0] === 1 && m[1][1] === 0;
+    })()`);
+    assert.strictEqual(qrCheck, true, 'Saf JS QR Kod üretici geçerli ISO finder desenleri üretmeli');
+
+    // C) Canlı Ping (RTT) ölçümü & kalite rozeti
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    guest.sandbox.document.getElementById('mp-code-input').value = host.eval('MP.roomCode');
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    // Saati 42ms ilerletip ping gönderelim -> _pong anında dönerken simNow - ts = 42ms ölçmeli!
+    const tsSent = host.eval('Math.round(performance.now())');
+    host.advanceClock(42);
+    host.eval(`MP.conn.emit('data', { t: '_pong', ts: ${tsSent} })`);
+    const measuredPing = host.eval('Math.round(MP.pingMs)');
+    assert.strictEqual(measuredPing, 42, 'Canlı Ping RTT milisaniye ölçümü doğru hesaplanmalı');
+    assert.strictEqual(host.eval('MPCore.pingInfo(MP.pingMs).cls'), 'ping-good', '42ms ping yeşil (ping-good) kalitede olmalı');
+
+    console.log('✅ KATEGORİ 1 (TURN ICE HAVUZU, SAF JS QR KOD & CANLI PING RTT) TESTİ GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 7) KATEGORİ 2: HAZIRLIK LOBİSİ, ODA AYARLARI SENKRONU & OYUN DEĞİŞTİRME
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const hostSess = {};
+    const guestSess = {};
+    const fHost = createClientSandbox('game.js', 420, 700, MockPeer, hostSess);
+    const fGuest = createClientSandbox('game.js', 360, 640, MockPeer, guestSess);
+
+    fHost.sandbox.document.getElementById('mp-name-input').value = 'Kaptan';
+    fGuest.sandbox.document.getElementById('mp-name-input').value = 'Dost';
+
+    fHost.eval('mpHost()');
+    await flushMicrotasks();
+    const originalRoomCode = fHost.eval('MP.roomCode');
+    fGuest.sandbox.document.getElementById('mp-code-input').value = originalRoomCode;
+    fGuest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    // Sadece tek taraf Hazır dediğinde maç başlamamalı!
+    fHost.eval('mpSetReady(true)');
+    assert.strictEqual(fHost.eval('MP.inLobby'), true, 'Tek oyuncu hazırken hala lobide beklenmeli');
+    assert.strictEqual(fGuest.eval('MP.oppReady'), true, 'Guest Host hazır bilgisini görmeli');
+
+    // Seri skoru 2-1 iken Host odayı bozmadan PONG oyununa geçiş başlatsın!
+    fHost.eval('MP.seriesMe = 2; MP.seriesOpp = 1; mpSwitchGame("pong");');
+    assert.strictEqual(fHost.sandbox.location.href, 'pong.html', 'Host pong.html sayfasına yönlenmeli');
+    assert.strictEqual(fGuest.sandbox.location.href, 'pong.html', 'Guest otomatik pong.html sayfasına yönlenmeli');
+
+    // Şimdi iki istemci de aynı sessionStorage ile pong.js yüklesin -> AYNI KODLA otomatik bağlanmalılar!
+    const pHost = createClientSandbox('pong.js', 420, 700, MockPeer, hostSess);
+    await flushMicrotasks();
+    const pGuest = createClientSandbox('pong.js', 360, 640, MockPeer, guestSess);
+    await flushMicrotasks();
+
+    assert.strictEqual(pHost.eval('MP.roomCode'), originalRoomCode, 'Pong Host aynı 5 haneli oda kodunu korumalı');
+    assert.strictEqual(pGuest.eval('MP.roomCode'), originalRoomCode, 'Pong Guest aynı 5 haneli oda koduna otomatik katılmalı');
+    assert.strictEqual(pHost.eval('MP.connected && MP.inLobby'), true, 'Pong Host otomatik bağlanıp Hazırlık Lobisini açmalı');
+    assert.strictEqual(pGuest.eval('MP.connected && MP.inLobby'), true, 'Pong Guest otomatik bağlanıp Hazırlık Lobisini açmalı');
+    assert.strictEqual(pHost.eval('MP.seriesMe'), 2, 'Seri skoru oyun değiştirince korunmalı (Host)');
+    assert.strictEqual(pGuest.eval('MP.seriesMe'), 1, 'Seri skoru oyun değiştirince ters perspektifle korunmalı (Guest)');
+
+    // Host lobide Pong Hedef Skorunu 5, Temayı 'synth' yapsın -> Guest anında görmeli!
+    pHost.eval('MP.lobbyWinScore = 5; MP.lobbyTheme = "synth"; P.theme = "synth"; mpSend({ t: "lobby_cfg", winScore: 5, theme: "synth", name: MP.myName });');
+    assert.strictEqual(pGuest.eval('MP.lobbyWinScore'), 5, 'Guest lobide hedef skorun 5 olduğunu canlı görmeli');
+    assert.strictEqual(pGuest.eval('P.theme'), 'synth', 'Guest lobide Synth temasını canlı almalı');
+
+    bothReady(pHost, pGuest);
+    assert.strictEqual(pHost.eval('currentWinScore'), 5, 'Maç başlayınca hedef skor 5 olarak uygulanmalı (Host)');
+    assert.strictEqual(pGuest.eval('currentWinScore'), 5, 'Maç başlayınca hedef skor 5 olarak uygulanmalı (Guest)');
+
+    console.log('✅ KATEGORİ 2 (HAZIRLIK LOBİSİ, AYAR SENKRONU & OYUNLAR ARASI ODA TAŞIMA) TESTİ GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 8) KATEGORİ 1: MAÇ İÇİ 12SN KOPMA KORUMASI (GRACE RECONNECT & AUTO-RESUME)
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const host = createClientSandbox('game.js', 420, 700, MockPeer);
+    const guest = createClientSandbox('game.js', 360, 640, MockPeer);
+
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    guest.sandbox.document.getElementById('mp-code-input').value = host.eval('MP.roomCode');
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+    bothReady(host, guest);
+
+    for (let i = 0; i < 190; i++) { host.stepFrame(); guest.stepFrame(); }
+    host.eval('score = 9; bird.y = playH() * 0.45; bird.vy = 0;');
+    guest.eval('score = 6; bird.y = playH() * 0.45; bird.vy = 0;');
+    host.eval('mpOnScore()');
+    guest.eval('mpOnScore()');
+
+    // Maçın tam ortasında anlık bildirim / ağ geçişi yüzünden WebRTC kanalı kopsun!
+    const frozenY = host.eval('bird.y');
+    MockPeer.offline = true;
+    host.eval('MP.conn.close()');
+    await flushMicrotasks();
+
+    // Oyuncular menüye ATILMAMALI — 12sn Grace Reconnect moduna girmeli ve fizik donmalı!
+    assert.strictEqual(host.eval('MP.reconnecting'), true, 'Maç içi kopmada Host MP.reconnecting moduna girmeli');
+    assert.strictEqual(guest.eval('MP.reconnecting'), true, 'Maç içi kopmada Guest MP.reconnecting moduna girmeli');
+    assert.strictEqual(host.eval('state === STATE.PLAYING'), true, 'Host menüye atılmamalı, PLAYING korunmalı');
+
+    // 10 kare ilerletelim: fizik duraklatıldığı için kuş düşmemeli!
+    for (let i = 0; i < 10; i++) { host.stepFrame(); }
+    assert.strictEqual(host.eval('bird.y'), frozenY, 'Yeniden bağlanma beklenirken kuş fiziği duraklatılmalı');
+
+    // Ağ geri geldiğinde otomatik yeniden bağlanma gerçekleşsin:
+    MockPeer.offline = false;
+    host.eval('mpEnsureHostAlive(true)');
+    await flushMicrotasks();
+    guest.eval('mpAttemptJoin()');
+    await flushMicrotasks();
+
+    assert.strictEqual(host.eval('MP.connected && !MP.reconnecting'), true, 'Host kopma sonrası kaldığı yerden bağlanmalı');
+    assert.strictEqual(guest.eval('MP.connected && !MP.reconnecting'), true, 'Guest kopma sonrası kaldığı yerden bağlanmalı');
+    assert.strictEqual(host.eval('score'), 9, 'Host skoru (9) kopma sonrası korunmalı');
+    assert.strictEqual(guest.eval('score'), 6, 'Guest skoru (6) kopma sonrası korunmalı');
+    assert.strictEqual(host.eval('MP.oppScore'), 6, 'Host rakip skorunu (6) _resume ile geri almalı');
+
+    console.log('✅ KATEGORİ 1 (MAÇ İÇİ 12SN KOPMA KORUMASI & KALDIĞI YERDEN DEVAM ETME) TESTİ GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 9) KATEGORİ 4: RTT/2 GERİ SAYIM TELAFİSİ & PONG İSTEMCİ TAHMİNİ (PREDICTION)
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const host = createClientSandbox('pong.js', 420, 700, MockPeer);
+    const guest = createClientSandbox('pong.js', 360, 640, MockPeer);
+
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    guest.sandbox.document.getElementById('mp-code-input').value = host.eval('MP.roomCode');
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    // Guest'te 100ms RTT ping varken (tek yön = 50ms = 3 kare) maç başlasın:
+    guest.eval('MP.pingMs = 100;');
+    bothReady(host, guest);
+    assert.strictEqual(host.eval('mpCountdown'), 180, 'Host 180 kareden geri saymalı');
+    assert.strictEqual(guest.eval('mpCountdown'), 177, 'Guest 100ms RTT için 50ms (3 kare) düşerek 177 kareden başlamalı');
+
+    // Geri sayımı bitirip PLAYING durumuna geçelim
+    for (let i = 0; i < 185; i++) { host.stepFrame(); guest.stepFrame(); }
+
+    // Top Guest'in sol raketine çarpmak üzereyken (vx < 0) Guest raketi topun hizasında olsun:
+    guest.eval(`
+      left.y = 220; left.target = 220; left.vy = -4;
+      ball.x = padX1 + padW + ball.r - 1;
+      ball.y = 220 + padH * 0.5;
+      ball.vx = -7.5;
+      ball.vy = 1.0;
+      ball.speed = 7.6;
+      MP.ballFresh = true;
+    `);
+    guest.eval('mpStepPhysics()');
+
+    // Host paketini beklemeden (0ms gecikmeyle!) Guest topu anında sağa sektirmeli!
+    assert.ok(guest.eval('ball.vx > 0'), 'Pong Guest sol raket vuruşunu 0ms gecikmeyle yerel tahmin etmeli (vx > 0)');
+    assert.strictEqual(guest.eval('MP.localBounceCooldown'), 12, 'Pong Guest yerel vuruş koruma sayacını başlatmalı');
+    assert.strictEqual(guest.eval('hitGlowL'), 1, 'Pong Guest raket parlama efektini anında tetiklemeli');
+
+    // Hemen 1 kare sonra Host'tan henüz vuruş öncesi gecikmiş bir paket (Host açısından sağa = nvx > 0 -> Guest açısından sola = rxVx < 0) gelse bile ezmemeli!
+    guest.eval(`MP.conn.emit('data', { t: 'ball', nx: 0.90, ny: 0.4, nvx: 0.018, nvy: 0.002, sp: 0, sl: 0, sr: 0, st: 3 })`);
+    assert.ok(guest.eval('ball.vx > 0'), 'Gecikmiş eski yönlü Host paketi Guest yerel raket vuruşunu geri sarmamalı');
+
+    console.log('✅ KATEGORİ 4 (RTT/2 GERİ SAYIM TELAFİSİ & PONG İSTEMCİ TAHMİNİ) TESTİ GEÇTİ!');
   }
 
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');

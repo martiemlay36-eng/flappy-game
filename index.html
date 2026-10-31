@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Oyun Salonu</title>
 <meta name="theme-color" content="#0f2027">
-<link rel="stylesheet" href="style.css?v=mp6">
+<link rel="stylesheet" href="style.css?v=mp7">
 </head>
 <body>
 <div id="game-wrapper">
@@ -14,6 +14,7 @@
   <!-- OYUN SALONU (ANA SAYFA) -->
   <div id="hub-screen" class="overlay">
     <h1 class="hub-title">🎮 OYUN SALONU</h1>
+    <button id="hub-mp-btn" class="big-btn hub-mp-btn" type="button">🌐 Arkadaşla Ortak Oda</button>
     <div class="game-grid">
       <a class="game-card" href="flappy.html">
         <span class="card-emoji">🐤</span>
@@ -42,8 +43,73 @@
       </span>
     </div>
   </div>
+
+  <!-- ORTAK SALON LOBİSİ (Tek Odayla İstediğin Oyuna Gir!) -->
+  <div id="mp-screen" class="overlay hidden">
+    <h2 class="go-title" style="color:#00bfff">🌐 ORTAK ODA LOBİSİ</h2>
+    <p class="tagline">Odayı bir kez kur — Flappy, Yılan ve Pong arasında kopmadan gez!</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <input id="mp-name-input" maxlength="12" placeholder="Takma adın (isteğe bağlı)" class="mp-name-input" autocomplete="off">
+
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn" type="button">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn" type="button">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <div class="mp-share-row">
+          <button id="mp-copy-btn" class="mp-share-btn" type="button">📋 Kodu Kopyala</button>
+          <button id="mp-share-btn" class="mp-share-btn whatsapp" type="button">📤 Davet Gönder</button>
+        </div>
+        <p class="tagline" id="mp-wait-text">Arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn" type="button">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <div id="hub-party-ready" class="mp-ready-area hidden">
+        <div class="mp-ready-header">
+          <span class="mp-room-pill">🔑 Oda: <b id="mp-ready-code">-----</b></span>
+          <span id="mp-lobby-ping" class="mp-ping-pill ping-idle">⚪ -- ms</span>
+        </div>
+        <div class="mp-players-box">
+          <div class="mp-pcard ready">
+            <span class="mp-pname" id="hub-me-name">👑 Sen</span>
+            <span class="mp-pstatus">✅ Bağlı</span>
+          </div>
+          <div class="mp-vs-badge">VS</div>
+          <div class="mp-pcard ready">
+            <span class="mp-pname" id="hub-opp-name">🎮 Rakip</span>
+            <span class="mp-pstatus">✅ Bağlı</span>
+          </div>
+        </div>
+        <div id="hub-game-picker" class="mp-switch-bar">
+          <span class="mp-switch-lbl" id="hub-picker-lbl">🎮 Birlikte Oyuna Gir:</span>
+          <div class="mp-switch-btns" id="hub-picker-btns">
+            <button type="button" class="mp-game-chip" data-game="flappy">🐦 Flappy Kuş</button>
+            <button type="button" class="mp-game-chip" data-game="snake">🐍 Yılan</button>
+            <button type="button" class="mp-game-chip" data-game="pong">🏓 Pong</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff7b7b"></p>
+      <button id="mp-quit-btn" class="small-btn" type="button">← Vazgeç</button>
+    </div>
+  </div>
 </div>
 
-<script src="hub.js?v=71b5086"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="mp-core.js?v=mp7"></script>
+<script src="hub.js?v=mp7"></script>
 </body>
 </html>
