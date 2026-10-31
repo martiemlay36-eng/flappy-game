@@ -5,41 +5,118 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Yılan</title>
 <meta name="theme-color" content="#0f2027">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=mp4">
 </head>
 <body>
 <div id="game-wrapper">
   <canvas id="game-canvas"></canvas>
 
-  <!-- HUD (skor) -->
+  <!-- HUD (skor + altın + güçlendirmeler + turbo) -->
   <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hud-coin-pill">🪙 <span id="hud-coins">0</span></div>
+      <div id="hud-combo" class="hidden">🔥 x2</div>
+    </div>
+    <div id="power-badges"></div>
     <div id="score-display">0</div>
     <button id="pause-btn" title="Duraklat (P)">⏸</button>
+    <button id="turbo-btn" title="Turbo Hız (Boşluk / Basılı Tut)">⚡</button>
   </div>
 
   <!-- MENÜ -->
   <div id="menu-screen" class="overlay">
     <button id="back-to-hub-btn" class="back-btn">← Salon</button>
-    <h1 class="game-title">🐍 YILAN</h1>
-    <p class="tagline">Yön tuşları veya kaydırma — elma ye, büyü, duvara çarpma!</p>
+    <div id="menu-coin-pill" class="coin-pill" title="Mağazayı Aç">🪙 <span id="menu-coins">0</span></div>
 
-    <div class="difficulty-tabs">
-      <button class="diff-btn" data-diff="easy">Yavaş</button>
-      <button class="diff-btn active" data-diff="normal">Normal</button>
-      <button class="diff-btn" data-diff="fast">Hızlı</button>
+    <h1 class="game-title snake-title">🐍 YILAN</h1>
+    <p class="tagline">Elma topla, büyü — Boşluk ile ⚡ Turbo yap!</p>
+
+    <div class="skin-row" id="menu-skin-row">
+      <button class="skin-btn" data-skin="emerald" title="Zümrüt Yılan"></button>
+      <button class="skin-btn" data-skin="cyber" title="Neon Siber"></button>
+      <button class="skin-btn" data-skin="dragon" title="Kızıl Ejder"></button>
+      <button class="skin-btn" data-skin="frost" title="Buz Yılanı"></button>
+      <button class="skin-btn" data-skin="cobra" title="Altın Kobra"></button>
+      <button class="skin-btn" data-skin="prism" title="Gökkuşağı Prizma"></button>
+    </div>
+
+    <div class="difficulty-tabs" id="mode-tabs">
+      <button class="mode-btn diff-btn active" data-mode="classic">🧱 Klasik</button>
+      <button class="mode-btn diff-btn" data-mode="portal">🌀 Portal</button>
+      <button class="mode-btn diff-btn" data-mode="maze">🚧 Labirent</button>
+    </div>
+
+    <div class="difficulty-tabs" id="speed-tabs">
+      <button class="speed-btn diff-btn" data-diff="easy">Yavaş</button>
+      <button class="speed-btn diff-btn active" data-diff="normal">Normal</button>
+      <button class="speed-btn diff-btn" data-diff="fast">Hızlı</button>
     </div>
 
     <button id="start-btn" class="big-btn">▶ BAŞLA</button>
-    <button id="mp-btn" class="small-btn mp-open-btn">🌐 Çevrimiçi Düello</button>
+
+    <div class="menu-row">
+      <button id="mp-btn" class="small-btn">🌐 Çevrimiçi Düello</button>
+      <button id="shop-btn" class="small-btn shop-open-btn">🛒 Mağaza</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="stats-btn" class="small-btn">📊 İstatistik</button>
+      <button id="lb-btn" class="small-btn">🏅 Skor Tablosu</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="sound-btn" class="small-btn">🔊 Efekt: Açık</button>
+      <button id="music-btn" class="small-btn">🎵 Müzik: Açık</button>
+    </div>
+    <div class="volume-row">
+      <span id="volume-icon">🔊</span><input type="range" id="volume-range" min="0" max="100" value="70">
+    </div>
+
     <div id="best-score-display">🏆 Rekor: 0</div>
+  </div>
+
+  <!-- MAĞAZA (KOSTÜM & SAHA TEMASI) -->
+  <div id="shop-screen" class="overlay hidden">
+    <div class="coin-pill shop-coin-top">🪙 <span id="shop-coins">0</span></div>
+    <h2 class="shop-title">🛒 YILAN MAĞAZASI</h2>
+    <div class="difficulty-tabs" id="shop-tabs">
+      <button class="shop-tab-btn diff-btn active" data-tab="skins">🐍 Kostümler</button>
+      <button class="shop-tab-btn diff-btn" data-tab="arenas">🏟️ Sahalar</button>
+    </div>
+    <div id="shop-list" class="shop-panel"></div>
+    <p id="shop-msg" class="tagline"></p>
+    <button id="shop-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- SKOR TABLOSU -->
+  <div id="leaderboard-screen" class="overlay hidden">
+    <h2>🏅 SKOR TABLOSU</h2>
+    <div id="lb-list" class="lb-panel"></div>
+    <button id="lb-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- İSTATİSTİK -->
+  <div id="stats-screen" class="overlay hidden">
+    <h2>📊 İSTATİSTİK</h2>
+    <div class="stats-panel score-panel">
+      <div class="score-row"><span>🏆 En iyi rekor</span><span id="st-best">0</span></div>
+      <div class="score-row"><span>📏 En uzun boy</span><span id="st-len">3</span></div>
+      <div class="score-row"><span>🍎 Yenilen elma</span><span id="st-apples">0</span></div>
+      <div class="score-row"><span>🎮 Toplam oyun</span><span id="st-games">0</span></div>
+      <div class="score-row"><span>🔥 En iyi kombo</span><span id="st-combo">0</span></div>
+      <div class="score-row"><span>🪙 Toplam altın</span><span id="st-coins">0</span></div>
+    </div>
+    <button id="stats-close-btn" class="big-btn">✖ Kapat</button>
   </div>
 
   <!-- ÇEVRİMİÇİ DÜELLO -->
   <div id="mp-screen" class="overlay hidden">
     <h2 class="go-title" style="color:#00bfff">🌐 YILAN DÜELLOSU</h2>
-    <p class="tagline">Aynı haritada yarışın — kim daha uzun yaşayacak?</p>
+    <p class="tagline">Aynı sahada yarışın — rakibin önünü kes veya daha çok elma topla!</p>
 
     <div id="mp-lobby" class="mp-panel">
+      <input id="mp-name-input" maxlength="12" placeholder="Takma adın (isteğe bağlı)" class="mp-name-input" autocomplete="off">
+
       <div class="menu-row mp-btn-row" id="mp-btn-row">
         <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
         <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
@@ -83,15 +160,27 @@
   <div id="gameover-screen" class="overlay hidden">
     <h2 class="go-title">OYUN BİTTİ</h2>
 
+    <div id="medal-display" class="hidden">
+      <div id="medal-icon">🥇</div>
+      <div id="medal-text">MADALYA</div>
+    </div>
+
     <div class="score-panel">
       <div class="score-row"><span>Skor</span><span id="final-score">0</span></div>
       <div class="score-row"><span>Rekor</span><span id="best-score-go">0</span></div>
+      <div class="score-row"><span>Yılan Boyu</span><span id="final-len">3</span></div>
+      <div class="score-row"><span>Kazanılan Altın</span><span id="run-coins-go">🪙 +0</span></div>
       <div id="new-record" class="hidden">🎉 YENİ REKOR!</div>
+    </div>
+
+    <div id="name-save-row" class="hidden">
+      <input id="player-name" maxlength="12" placeholder="Adın">
+      <button id="save-score-btn">💾 Kaydet</button>
     </div>
 
     <div class="menu-row">
       <button id="retry-btn" class="big-btn">🔄 TEKRAR</button>
-      <button id="home-btn" class="small-btn">🏠 Salon</button>
+      <button id="home-btn" class="small-btn">🏠 Menü</button>
     </div>
   </div>
 
@@ -100,15 +189,15 @@
     <h2>DURAKLATILDI</h2>
     <div class="menu-row">
       <button id="resume-btn" class="big-btn">▶ Devam</button>
-      <button id="quit-btn" class="small-btn">🏠 Salon</button>
+      <button id="quit-btn" class="small-btn">🏠 Menü</button>
     </div>
   </div>
 
   <!-- İpucu -->
-  <div id="tap-hint" class="hidden">👆 Kaydır / Yön tuşları</div>
+  <div id="tap-hint" class="hidden">👆 Kaydır / Yön tuşları · Boşluk = ⚡ Turbo</div>
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script src="snake.js?v=71b5086"></script>
+<script src="snake.js?v=mp4"></script>
 </body>
 </html>

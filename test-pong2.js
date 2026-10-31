@@ -90,4 +90,27 @@ frames(3);
 console.log('T3 raket sekmesi: ball.vx =', ball.vx, '(pozitif olmali)');
 if (ball.vx <= 0) { console.log('T3 HATA: top raketten sekmeli'); process.exit(1); }
 
+// ---- TEST 4: Mobil Trackpad Göreceli Sürükleme (zıplama yapmamalı!) & 4 Tema ----
+P.ctrlMode = 'trackpad';
+P.sensitivity = 1.5;
+const beforeTarget = left.target;
+onPointerDown(350, 620); // ekranın sağ altına dokun
+if (Math.abs(left.target - beforeTarget) > 0.01) {
+  console.log('T4 HATA: Trackpad modunda ilk dokunusta raket ziplamamali!');
+  process.exit(1);
+}
+onPointerMove(350, 580); // 40px yukarı kaydır -> -60px hareket etmeli
+if (Math.abs(left.target - (beforeTarget - 60)) > 1) {
+  console.log('T4 HATA: Hassasiyet carpani yanlis! left.target =', left.target);
+  process.exit(1);
+}
+onPointerUp();
+['cyber', 'ice', 'synth', 'court'].forEach(th => {
+  P.theme = th;
+  frames(4);
+});
+goMenu();
+frames(6); // menü demo ralli çizimi
+console.log('T4 Mobil Trackpad & 4 Ultra Tema Cizimi: OK');
+
 console.log('TUM TESTLER GECTI');
