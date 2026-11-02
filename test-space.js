@@ -57,6 +57,13 @@ global.sessionStorage = { getItem: () => null, setItem: noop, removeItem: noop }
 global.performance = { now: () => Date.now() };
 global.requestAnimationFrame = () => 0;
 
+// Herhangi bir yakalanmis loop hatasi varsa aninda patlasin!
+const origConsoleError = console.error;
+console.error = (...args) => {
+  origConsoleError(...args);
+  throw new Error('Beklenmeyen console.error: ' + args.map(String).join(' '));
+};
+
 const mpCoreCode = fs.readFileSync(path.join(__dirname, 'mp-core.js'), 'utf8');
 const spaceCode = fs.readFileSync(path.join(__dirname, 'space.js'), 'utf8');
 
@@ -147,5 +154,47 @@ assert.strictEqual(savedRoot.snake.bestScore, 88, 'Snake verisi korunmali');
 assert.strictEqual(savedRoot.pong.wins, 7, 'Pong verisi korunmali');
 assert.ok(savedRoot.space && typeof savedRoot.space === 'object', 'Space verisi kaydedilmeli');
 console.log('6) OYUN-SALONU-V2 VERI BUTUNLUGU: OK');
+
+// 7) REGRESYON: Coklu dusman mermisi varken mermi carpismasi (3762 puan donma hatasi testi)
+startGame();
+player.invuln = 0;
+player.shield = true;
+eBullets = [
+  { x: player.x - 25, y: player.y - 15, vx: 0, vy: 2, r: 4, color: '#ff3366' }, // index 0 (yakinda -> silinecek)
+  { x: player.x + 30, y: player.y + 10, vx: 0, vy: 2, r: 4, color: '#ff3366' }, // index 1 (yakinda -> silinecek)
+  { x: player.x,      y: player.y,      vx: 0, vy: 0, r: 5, color: '#ff3366' }, // index 2 (oyuncuya carpan!)
+  { x: 20,            y: 30,            vx: 0, vy: 2, r: 4, color: '#ff3366' }, // index 3 (uzakta -> kalacak)
+  { x: player.x - 10, y: player.y + 20, vx: 0, vy: 2, r: 4, color: '#ff3366' }  // index 4 (yakinda)
+];
+stepWorld(); // Kalkan kirilir + clearNearbyThreats(145) diziyi kucultur -> cokmemeli!
+assert.strictEqual(player.shield, false, 'Coklu mermi ortasinda isabette kalkan kirilmali');
+
+player.invuln = 0;
+eBullets.push(
+  { x: player.x + 20, y: player.y - 10, vx: 0, vy: 2, r: 4, color: '#ff3366' },
+  { x: player.x - 20, y: player.y + 10, vx: 0, vy: 2, r: 4, color: '#ff3366' },
+  { x: player.x,      y: player.y,      vx: 0, vy: 0, r: 5, color: '#ff3366' }
+);
+stepWorld(); // Govde hasari + clearNearbyThreats(170) diziyi kucultur -> cokmemeli!
+assert.strictEqual(player.hp, 4, 'Coklu mermi ortasinda govde darbesi hatasiz islenmeli');
+console.log('7) REGRESYON (COKLU MERMI CARPISMASI / DIZI INDEKS KORUMASI): OK');
+
+// 8) 40.000 KARE STRES TESTI (10.000+ Puan & Coklu Boss Savaslari)
+startGame();
+player.weaponLv = 4;
+let simNow = performance.now();
+for (let f = 0; f < 40000; f++) {
+  simNow += 16.67;
+  // Basit otomatik pilot: aktif hedefe veya merkeze salin, EMP dolunca patlat, can azalirsa koru
+  player.targetX = 210 + Math.sin(f * 0.04) * 150;
+  player.targetY = 560 + Math.cos(f * 0.03) * 50;
+  if (empCharge >= 100) triggerEMP();
+  if (player.hp <= 1) player.hp = 3; // Uzun sureli yüksek dalga/skor stres testi icin hayatta tut
+  loop(simNow);
+  assert.ok(Number.isFinite(player.x) && Number.isFinite(player.y), 'Gemi koordinatlari gecerli olmali');
+}
+assert.strictEqual(state, STATE.PLAYING, '40.000 kare sonunda oyun donmadan PLAYING kalmali');
+assert.ok(score > 10000, 'Stres testinde 10.000+ puana ulasilmali (ulasildi: ' + score + ')');
+console.log('8) 40.000 KARE STRES SIMULASYONU: OK — Ulasilan Skor =', score, 'Dalga =', wave);
 
 console.log('\n✅ UZAY AVCISI TUM TESTLERI KUSURSUZ GECTI!');

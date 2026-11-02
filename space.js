@@ -268,15 +268,23 @@ function tone(freq, dur, type = 'sine', gainVal = 0.12, slideTo = null, delay = 
     g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
     osc.connect(g);
     g.connect(ac.destination);
+    osc.onended = () => {
+      try { osc.disconnect(); g.disconnect(); } catch (e) {}
+    };
     osc.start(t0);
     osc.stop(t0 + dur + 0.015);
   } catch (e) {}
 }
 
+let lastHitSfxFrame = -10;
 const sfx = {
   click:   () => tone(660, 0.05, 'triangle', 0.12, 880),
   laser:   (wlv) => tone(780 + (wlv || 1) * 70, 0.065, 'sawtooth', 0.055, 290),
-  hit:     () => tone(210, 0.06, 'square', 0.08, 110),
+  hit:     () => {
+    if (frames - lastHitSfxFrame < 3) return;
+    lastHitSfxFrame = frames;
+    tone(210, 0.06, 'square', 0.08, 110);
+  },
   boom:    (big) => {
     tone(big ? 120 : 175, big ? 0.28 : 0.14, 'sawtooth', big ? 0.20 : 0.12, 38);
     if (big) tone(90, 0.34, 'triangle', 0.18, 28, 0.04);
@@ -1291,7 +1299,10 @@ function stepWorld() {
 
   // Düşman hareketleri & ateşleri
   for (let i = enemies.length - 1; i >= 0; i--) {
+    if (i >= enemies.length) i = enemies.length - 1;
+    if (i < 0) break;
     const e = enemies[i];
+    if (!e) continue;
     e.phase += 0.06;
     if (e.type === 'meteor') {
       e.rot += 0.04;
@@ -1395,7 +1406,10 @@ function stepWorld() {
 
   // Dost lazer mermileri
   for (let i = bullets.length - 1; i >= 0; i--) {
+    if (i >= bullets.length) i = bullets.length - 1;
+    if (i < 0) break;
     const b = bullets[i];
+    if (!b) continue;
     b.x += b.vx;
     b.y += b.vy;
     if (b.y < -20 || b.x < -20 || b.x > VIRT_W + 20) {
@@ -1420,6 +1434,7 @@ function stepWorld() {
     // Normal düşman isabeti
     for (let j = enemies.length - 1; j >= 0; j--) {
       const e = enemies[j];
+      if (!e) continue;
       if (Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.r + 2) {
         bullets.splice(i, 1);
         hit = true;
@@ -1441,9 +1456,12 @@ function stepWorld() {
     if (hit) continue;
   }
 
-  // Düşman mermileri
+  // Düşman mermileri (damagePlayer -> clearNearbyThreats diziyi küçültebildiği için indeks korumalı!)
   for (let i = eBullets.length - 1; i >= 0; i--) {
+    if (i >= eBullets.length) i = eBullets.length - 1;
+    if (i < 0) break;
     const eb = eBullets[i];
+    if (!eb) continue;
     eb.x += eb.vx;
     eb.y += eb.vy;
     if (eb.y > VIRT_H + 24 || eb.y < -24 || eb.x < -24 || eb.x > VIRT_W + 24) {
@@ -1461,7 +1479,10 @@ function stepWorld() {
 
   // Ganimetler & Mıknatıs Çekimi
   for (let i = pickups.length - 1; i >= 0; i--) {
+    if (i >= pickups.length) i = pickups.length - 1;
+    if (i < 0) break;
     const p = pickups[i];
+    if (!p) continue;
     p.bob += 0.1;
     if (!MP.spectating && player.magnetTimer > 0) {
       const dx = player.x - p.x;
@@ -1491,8 +1512,12 @@ function stepWorld() {
 }
 
 function stepEffects() {
+  if (particles.length > 280) {
+    particles.splice(0, particles.length - 280);
+  }
   for (let i = particles.length - 1; i >= 0; i--) {
     const pt = particles[i];
+    if (!pt) continue;
     pt.x += pt.vx;
     pt.y += pt.vy;
     pt.vx *= 0.95;
@@ -3398,42 +3423,46 @@ const STEP_MS = 1000 / 60;
 let acc = 0, lastT = performance.now();
 
 function loop(now) {
-  const dt = Math.min(now - lastT, 100);
-  lastT = now;
-  acc += dt;
-  if (acc > 200) acc = STEP_MS;
-
-  while (acc >= STEP_MS) {
-    acc -= STEP_MS;
-    frames++;
-    mpBgTick();
-    stepBackground();
-
-    if (MP.reconnecting) {
-      mpGraceTick();
-      continue;
-    }
-
-    if (state === STATE.READY) {
-      stepPlayerMovement();
-      if (MP.connected) {
-        mpCountdownTick();
-        mpShipTick();
-      } else {
-        state = STATE.PLAYING;
-      }
-      stepEffects();
-    } else if (state === STATE.PLAYING) {
-      stepWorld();
-      if (MP.connected) mpShipTick();
-      stepEffects();
-    } else if (state !== STATE.PAUSED) {
-      stepEffects();
-    }
-  }
-
-  draw();
   requestAnimationFrame(loop);
+  try {
+    const dt = Math.max(0, Math.min(now - lastT, 100));
+    lastT = now;
+    acc += dt;
+    if (acc > 200) acc = STEP_MS;
+
+    while (acc >= STEP_MS) {
+      acc -= STEP_MS;
+      frames++;
+      mpBgTick();
+      stepBackground();
+
+      if (MP.reconnecting) {
+        mpGraceTick();
+        continue;
+      }
+
+      if (state === STATE.READY) {
+        stepPlayerMovement();
+        if (MP.connected) {
+          mpCountdownTick();
+          mpShipTick();
+        } else {
+          state = STATE.PLAYING;
+        }
+        stepEffects();
+      } else if (state === STATE.PLAYING) {
+        stepWorld();
+        if (MP.connected) mpShipTick();
+        stepEffects();
+      } else if (state !== STATE.PAUSED) {
+        stepEffects();
+      }
+    }
+
+    draw();
+  } catch (err) {
+    if (typeof console !== 'undefined' && console.error) console.error('Space loop error:', err);
+  }
 }
 
 // ---------- Başlat ----------
