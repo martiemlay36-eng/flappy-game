@@ -15,8 +15,7 @@
     flappy: { id: 'flappy', prefix: 'flappy-', file: 'flappy.html', icon: '🐦', name: 'Flappy Kuş' },
     snake:  { id: 'snake',  prefix: 'snake-',  file: 'snake.html',  icon: '🐍', name: 'Yılan' },
     pong:   { id: 'pong',   prefix: 'pong-',   file: 'pong.html',   icon: '🏓', name: 'Pong' },
-    space:  { id: 'space',  prefix: 'space-',  file: 'space.html',  icon: '🚀', name: 'Uzay Avcısı' },
-    stars:  { id: 'stars',  prefix: 'stars-',  file: 'stars.html',  icon: '⭐', name: 'Yıldız Yakalama' }
+    space:  { id: 'space',  prefix: 'space-',  file: 'space.html',  icon: '🚀', name: 'Uzay Avcısı' }
   };
 
   // 4G/5G CGNAT & Farklı Ağlar İçin Çoklu STUN + Ücretsiz Açık TURN (UDP + TCP + TLS 443)

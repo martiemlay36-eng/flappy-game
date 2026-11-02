@@ -47,7 +47,6 @@ function loadBest(game) {
 $('hub-flappy-best').textContent = loadFlappy();
 $('hub-snake-best').textContent = loadBest('snake');
 if ($('hub-space-best')) $('hub-space-best').textContent = loadBest('space');
-if ($('hub-stars-best')) $('hub-stars-best').textContent = loadBest('stars');
 
 // Pong için galibiyet sayısını göster
 (function () {

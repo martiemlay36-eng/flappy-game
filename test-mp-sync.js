@@ -831,68 +831,6 @@ async function flushMicrotasks() {
     console.log('✅ UZAY AVCISI ÇEVRİMİÇİ 1v1 EŞZAMANLI DALGA & CANLI İZLEYİCİ TESTİ GEÇTİ!');
   }
 
-  // =========================================================================
-  // 12) YILDIZ YAKALAMA: 1v1 ARKADAŞ YILDIZ YARIŞI & CANLI İZLEYİCİ
-  // =========================================================================
-  {
-    const MockPeer = createPeerBroker();
-    const hostSess = {};
-    const guestSess = {};
-
-    const host = createClientSandbox('stars.js', 420, 700, MockPeer, hostSess);
-    const guest = createClientSandbox('stars.js', 360, 640, MockPeer, guestSess);
-
-    host.eval('mpHost()');
-    await flushMicrotasks();
-    const code = host.eval('MP.roomCode');
-
-    guest.sandbox.document.getElementById('mp-code-input').value = code;
-    guest.eval('mpJoinConfirm()');
-    await flushMicrotasks();
-
-    assert.strictEqual(host.eval('MP.connected && MP.inLobby'), true, 'Yıldız Yakalama Host lobiye girmeli');
-    assert.strictEqual(guest.eval('MP.connected && MP.inLobby'), true, 'Yıldız Yakalama Guest lobiye girmeli');
-
-    // Host parti modunu ve dream gökyüzünü seçsin
-    host.eval(`
-      MP.lobbyMode = 'party';
-      MP.lobbySky = 'dream';
-      mpSend({ t: 'lobby_cfg', mode: 'party', sky: 'dream', name: MP.myName, pet: ST.pet });
-    `);
-    await flushMicrotasks();
-    assert.strictEqual(guest.eval('MP.lobbyMode'), 'party', 'Guest parti modunu almalı');
-    assert.strictEqual(guest.eval('MP.lobbySky'), 'dream', 'Guest dream gökyüzünü almalı');
-
-    bothReady(host, guest);
-    // Geri sayım bittikten sonra iki tarafta da aynı tohumla aynı yıldızların doğduğunu test edelim
-    for (let i = 0; i < 185; i++) { host.stepFrame(); guest.stepFrame(); }
-    for (let i = 0; i < 80; i++) { host.stepFrame(); guest.stepFrame(); }
-
-    const hostItemKinds = host.eval('items.map(it => it.kind + ":" + Math.round(it.x)).join(",")');
-    const guestItemKinds = guest.eval('items.map(it => it.kind + ":" + Math.round(it.x)).join(",")');
-    assert.ok(hostItemKinds.length > 0, 'Yıldızlar doğmalı');
-    assert.strictEqual(hostItemKinds, guestItemKinds, 'Farklı ekran boyutlarında bile doğan yıldızların tür ve sanal koordinatları %100 birebir eşit olmalı');
-
-    // Host yıldız yakalayıp skor alsın
-    host.eval('score = 80; mpOnScore();');
-    await flushMicrotasks();
-    assert.strictEqual(guest.eval('MP.oppScore'), 80, 'Guest Host skorunu anında görmeli');
-
-    // Host süresi bitip finishCelebration çağırsın -> Canlı izleyiciye geçmeli
-    host.eval('mpOnFinish();');
-    await flushMicrotasks();
-    assert.strictEqual(host.eval('MP.spectating'), true, 'Erken bitiren oyuncu arkadaşını izlemeye geçmeli');
-
-    // Guest de bitirince maç sonucu açılmalı
-    guest.eval('score = 60; mpOnFinish();');
-    await flushMicrotasks();
-    assert.strictEqual(host.eval('MP.spectating'), false, 'Her iki taraf da bitirince izleyici modu kapanmalı');
-    assert.strictEqual(host.eval('MP.seriesMe'), 1, 'Host maçı kazandığını seriye kaydetmeli');
-    assert.strictEqual(guest.eval('MP.seriesOpp'), 1, 'Guest rakip galibiyetini seriye kaydetmeli');
-
-    console.log('✅ YILDIZ YAKALAMA ÇEVRİMİÇİ 1v1 SENKRONİZE YILDIZ YARIŞI TESTİ GEÇTİ!');
-  }
-
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
 })().catch(err => {
   console.error('TEST HATASI:', err);
