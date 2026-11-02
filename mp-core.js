@@ -15,7 +15,8 @@
     flappy: { id: 'flappy', prefix: 'flappy-', file: 'flappy.html', icon: '🐦', name: 'Flappy Kuş' },
     snake:  { id: 'snake',  prefix: 'snake-',  file: 'snake.html',  icon: '🐍', name: 'Yılan' },
     pong:   { id: 'pong',   prefix: 'pong-',   file: 'pong.html',   icon: '🏓', name: 'Pong' },
-    space:  { id: 'space',  prefix: 'space-',  file: 'space.html',  icon: '🚀', name: 'Uzay Avcısı' }
+    space:  { id: 'space',  prefix: 'space-',  file: 'space.html',  icon: '🚀', name: 'Uzay Avcısı' },
+    stars:  { id: 'stars',  prefix: 'stars-',  file: 'stars.html',  icon: '⭐', name: 'Yıldız Yakalama' }
   };
 
   // 4G/5G CGNAT & Farklı Ağlar İçin Çoklu STUN + Ücretsiz Açık TURN (UDP + TCP + TLS 443)
@@ -504,10 +505,7 @@
     if (!PeerClass || !roomCode) return null;
     const targets = [
       { prefix: 'hub-', id: 'hub' },
-      { prefix: 'flappy-', id: 'flappy' },
-      { prefix: 'snake-', id: 'snake' },
-      { prefix: 'pong-', id: 'pong' },
-      { prefix: 'space-', id: 'space' }
+      ...Object.keys(GAMES).map(k => ({ prefix: GAMES[k].prefix, id: GAMES[k].id }))
     ].filter(x => x.prefix !== skipPrefix);
     if (!targets.length) return null;
 

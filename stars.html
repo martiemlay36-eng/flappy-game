@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Yıldız Yakalama</title>
+<meta name="theme-color" content="#3a86ff">
+<link rel="stylesheet" href="style.css?v=mp12">
+</head>
+<body class="kids-theme-body">
+<div id="game-wrapper" class="kids-wrapper">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD (altın + kalp/süre + kombo + güçlendirmeler + skor + gökkuşağı butonu) -->
+  <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hud-coin-pill">🪙 <span id="hud-coins">0</span></div>
+      <div id="hud-hp" class="kids-hp-pill" title="Durum">🌈 Rahat</div>
+      <div id="hud-combo" class="hidden">🌟 x2</div>
+    </div>
+    <div id="power-badges"></div>
+    <div id="score-display">0</div>
+    <button id="pause-btn" title="Duraklat (P)">⏸</button>
+    <button id="finish-kids-btn" class="kids-finish-btn hidden" title="Kutla ve Bitir">🏁 Kutla</button>
+    <button id="rainbow-btn" class="kids-rainbow-btn" title="Gökkuşağı Yağmuru (Boşluk)">🌈</button>
+  </div>
+
+  <!-- MENÜ -->
+  <div id="menu-screen" class="overlay kids-overlay">
+    <button id="back-to-hub-btn" class="back-btn">← Salon</button>
+    <div id="menu-coin-pill" class="coin-pill" title="Oyuncak Dükkânını Aç">🪙 <span id="menu-coins">0</span></div>
+
+    <h1 class="game-title kids-game-title">⭐ YILDIZ YAKALAMA</h1>
+    <p class="tagline kids-tagline">Yıldızları sepetle yakala · 🎈 Balonlara dokun patlat!</p>
+
+    <div class="skin-row kids-skin-row" id="menu-skin-row">
+      <button class="skin-btn kids-skin-btn" data-skin="bear" title="Sevimli Ayıcık">🧸</button>
+      <button class="skin-btn kids-skin-btn" data-skin="cat" title="Şeker Kedi">🐱</button>
+      <button class="skin-btn kids-skin-btn" data-skin="bunny" title="Pamuk Tavşan">🐰</button>
+      <button class="skin-btn kids-skin-btn" data-skin="panda" title="Neşeli Panda">🐼</button>
+      <button class="skin-btn kids-skin-btn" data-skin="fox" title="Yıldız Tilki">🦊</button>
+      <button class="skin-btn kids-skin-btn" data-skin="unicorn" title="Gökkuşağı Unicorn">🦄</button>
+    </div>
+
+    <div class="difficulty-tabs kids-mode-tabs" id="diff-tabs">
+      <button class="diff-btn active" data-diff="kids" title="Yanma yok, çok kolay!">🌈 Minik</button>
+      <button class="diff-btn" data-diff="happy" title="5 kalpli neşeli macera">⭐ Neşeli</button>
+      <button class="diff-btn" data-diff="party" title="60 saniyelik yıldız partisi">🎉 Parti (60sn)</button>
+    </div>
+
+    <button id="start-btn" class="big-btn kids-start-btn">▶ OYNA!</button>
+
+    <div class="menu-row">
+      <button id="mp-btn" class="small-btn kids-btn-alt">🌐 Arkadaşla Oyna</button>
+      <button id="shop-btn" class="small-btn shop-open-btn">🎁 Oyuncaklar</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="stats-btn" class="small-btn">📊 Yıldızlarım</button>
+      <button id="lb-btn" class="small-btn">🏅 Şampiyonlar</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="sound-btn" class="small-btn">🔊 Ses: Açık</button>
+      <button id="music-btn" class="small-btn">🎵 Müzik: Açık</button>
+    </div>
+    <div class="volume-row">
+      <span id="volume-icon">🔊</span><input type="range" id="volume-range" min="0" max="100" value="70">
+    </div>
+
+    <div id="best-score-display">🏆 En Çok Yıldız: 0</div>
+  </div>
+
+  <!-- OYUNCAK DÜKKÂNI (KARAKTERLER & GÖKYÜZÜ TEMALARI) -->
+  <div id="shop-screen" class="overlay kids-overlay hidden">
+    <div class="coin-pill shop-coin-top">🪙 <span id="shop-coins">0</span></div>
+    <h2 class="shop-title">🎁 OYUNCAK DÜKKÂNI</h2>
+    <div class="difficulty-tabs" id="shop-tabs">
+      <button class="shop-tab-btn diff-btn active" data-tab="pets">🧸 Dostlar</button>
+      <button class="shop-tab-btn diff-btn" data-tab="skies">🌈 Gökyüzü</button>
+    </div>
+    <div id="shop-list" class="shop-panel"></div>
+    <p id="shop-msg" class="tagline"></p>
+    <button id="shop-close-btn" class="big-btn">✖ Tamam</button>
+  </div>
+
+  <!-- ŞAMPİYONLAR TABLOSU -->
+  <div id="leaderboard-screen" class="overlay kids-overlay hidden">
+    <h2>🏅 YILDIZ ŞAMPİYONLARI</h2>
+    <div id="lb-list" class="lb-panel"></div>
+    <button id="lb-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- İSTATİSTİK -->
+  <div id="stats-screen" class="overlay kids-overlay hidden">
+    <h2>📊 YILDIZ DEFTERİM</h2>
+    <div class="stats-panel score-panel">
+      <div class="score-row"><span>🏆 En yüksek puan</span><span id="st-best">0</span></div>
+      <div class="score-row"><span>⭐ Yakalanan yıldız</span><span id="st-stars">0</span></div>
+      <div class="score-row"><span>🎈 Patlatılan balon</span><span id="st-balloons">0</span></div>
+      <div class="score-row"><span>🎁 Açılan sürpriz</span><span id="st-gifts">0</span></div>
+      <div class="score-row"><span>🌟 En iyi seri</span><span id="st-combo">0</span></div>
+      <div class="score-row"><span>🎮 Toplam oyun</span><span id="st-games">0</span></div>
+      <div class="score-row"><span>🪙 Toplam altın</span><span id="st-coins">0</span></div>
+    </div>
+    <button id="stats-close-btn" class="big-btn">✖ Kapat</button>
+  </div>
+
+  <!-- ÇEVRİMİÇİ YILDIZ YARIŞI -->
+  <div id="mp-screen" class="overlay kids-overlay hidden">
+    <h2 class="go-title" style="color:#ffd166">🌐 YILDIZ YARIŞI</h2>
+    <p class="tagline">Arkadaşınla birlikte en çok yıldızı ve balonu yakala!</p>
+
+    <div id="mp-lobby" class="mp-panel">
+      <input id="mp-name-input" maxlength="12" placeholder="Adın (isteğe bağlı)" class="mp-name-input" autocomplete="off">
+
+      <div class="menu-row mp-btn-row" id="mp-btn-row">
+        <button id="mp-host-btn" class="big-btn">🏠 Oda Kur</button>
+        <button id="mp-join-btn" class="big-btn">🔗 Kodla Katıl</button>
+      </div>
+
+      <div id="mp-host-area" class="hidden">
+        <div class="mp-code-box">
+          <span>Oda Kodu:</span>
+          <span id="mp-room-code" class="mp-code">-----</span>
+        </div>
+        <div class="mp-share-row">
+          <button id="mp-copy-btn" class="mp-share-btn" type="button">📋 Kodu Kopyala</button>
+          <button id="mp-share-btn" class="mp-share-btn whatsapp" type="button">📤 Davet Gönder</button>
+        </div>
+        <p class="tagline" id="mp-wait-text">Arkadaşın bekleniyor...</p>
+        <div class="mp-loader"></div>
+      </div>
+
+      <div id="mp-join-area" class="hidden">
+        <input id="mp-code-input" maxlength="5" placeholder="5 haneli kod" class="mp-code-input" autocomplete="off">
+        <button id="mp-join-confirm" class="big-btn">Katıl</button>
+        <p class="tagline" id="mp-join-status"></p>
+      </div>
+
+      <p class="tagline" id="mp-error" style="color:#ff9e9e"></p>
+      <button id="mp-quit-btn" class="small-btn">← Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- Çevrimiçi Maç Sonu -->
+  <div id="mp-gameover-screen" class="overlay kids-overlay hidden">
+    <h2 class="go-title kids-celebrate-title">🎉 YILDIZ YARIŞI BİTTİ!</h2>
+    <div id="mp-series-text" class="mp-series-pill">🏅 Skor: 0 - 0</div>
+    <div class="score-panel">
+      <div class="score-row"><span id="mp-me-label">Sen</span><span id="mp-final-me">0</span></div>
+      <div class="score-row"><span id="mp-opp-label">Arkadaşın</span><span id="mp-final-opp">0</span></div>
+      <div id="mp-result-text"></div>
+    </div>
+    <div class="menu-row">
+      <button id="mp-rematch-btn" class="big-btn">🔄 Tekrar Oyna</button>
+      <button id="mp-leave-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- KUTLAMA EKRANI (Korkutucu "Oyun Bitti" yerine neşeli kutlama!) -->
+  <div id="gameover-screen" class="overlay kids-overlay hidden">
+    <h2 class="go-title kids-celebrate-title" id="celebrate-title">🎉 HARİKA OYNADIN!</h2>
+
+    <div id="medal-display" class="hidden">
+      <div id="medal-icon">🌟</div>
+      <div id="medal-text">SÜPER YILDIZ!</div>
+    </div>
+
+    <div class="score-panel">
+      <div class="score-row"><span>Puanın</span><span id="final-score">0</span></div>
+      <div class="score-row"><span>Yakalanan Yıldız</span><span id="final-stars">⭐ 0</span></div>
+      <div class="score-row"><span>En İyi Rekor</span><span id="best-score-go">0</span></div>
+      <div class="score-row"><span>Kazanılan Altın</span><span id="run-coins-go">🪙 +0</span></div>
+      <div id="new-record" class="hidden">🎊 YENİ REKOR! AFERİN!</div>
+    </div>
+
+    <div id="name-save-row" class="name-save-row">
+      <input id="player-name" maxlength="12" placeholder="Adın" autocomplete="off">
+      <button id="save-score-btn" class="small-btn">🏅 Kaydet</button>
+    </div>
+
+    <div class="menu-row">
+      <button id="retry-btn" class="big-btn kids-start-btn">🔄 TEKRAR OYNA</button>
+      <button id="home-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <!-- DURAKLAT -->
+  <div id="pause-screen" class="overlay kids-overlay hidden">
+    <h2>⏸ DİNLENME MOLASI</h2>
+    <div class="menu-row">
+      <button id="resume-btn" class="big-btn kids-start-btn">▶ Devam Et</button>
+      <button id="quit-btn" class="small-btn">🏠 Menü</button>
+    </div>
+  </div>
+
+  <div id="tap-hint" class="hidden">👆 Parmağınla kaydır yıldız yakala · 🎈 Balonlara dokun patlat!</div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="mp-core.js?v=mp12"></script>
+<script src="stars.js?v=mp12"></script>
+</body>
+</html>
