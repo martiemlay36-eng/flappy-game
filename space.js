@@ -130,17 +130,18 @@ const SECTORS = {
 };
 
 const DIFFICULTIES = {
-  easy:   { label: 'Kolay',  spawnInt: 52, enemySpd: 0.82, bulletSpd: 0.80, hpMul: 0.85, fireRateMul: 0.72 },
-  normal: { label: 'Normal', spawnInt: 40, enemySpd: 1.00, bulletSpd: 1.00, hpMul: 1.00, fireRateMul: 1.00 },
-  hard:   { label: 'Zor',    spawnInt: 31, enemySpd: 1.22, bulletSpd: 1.20, hpMul: 1.20, fireRateMul: 1.28 }
+  easy:   { label: 'Kolay',  spawnInt: 68, enemySpd: 0.62, bulletSpd: 0.56, hpMul: 0.70, fireRateMul: 0.52 },
+  normal: { label: 'Normal', spawnInt: 54, enemySpd: 0.76, bulletSpd: 0.70, hpMul: 0.85, fireRateMul: 0.68 },
+  hard:   { label: 'Zor',    spawnInt: 40, enemySpd: 0.96, bulletSpd: 0.92, hpMul: 1.05, fireRateMul: 0.92 }
 };
 
 const POWERUPS = {
   weapon: { emoji: '🔫', label: 'Silah +1', color: '#ff9e00', dur: 0 },
   shield: { emoji: '🛡️', label: 'Kalkan',   color: '#00e5ff', dur: 0 },
-  rapid:  { emoji: '⚡', label: 'Seri Ateş', color: '#ffe600', dur: 450 },
-  magnet: { emoji: '🧲', label: 'Mıknatıs', color: '#ff4d94', dur: 520 },
-  x2:     { emoji: '✨', label: '2x Skor',  color: '#b5179e', dur: 480 }
+  heal:   { emoji: '❤️', label: '+1 Can',   color: '#ff4d6d', dur: 0 },
+  rapid:  { emoji: '⚡', label: 'Seri Ateş', color: '#ffe600', dur: 480 },
+  magnet: { emoji: '🧲', label: 'Mıknatıs', color: '#ff4d94', dur: 540 },
+  x2:     { emoji: '✨', label: '2x Skor',  color: '#b5179e', dur: 500 }
 };
 
 // ---------- Kalıcı Veri (oyun-salonu-v2 uyumlu) ----------
@@ -368,12 +369,12 @@ const player = {
   ty: VIRT_H * 0.80,
   vx: 0,
   vy: 0,
-  r: 15,
-  hp: 3,
-  maxHp: 3,
+  r: 9.5,
+  hp: 5,
+  maxHp: 5,
   invuln: 0,
   weaponLv: 1,
-  shield: false,
+  shield: true,
   rapidTimer: 0,
   magnetTimer: 0,
   x2Timer: 0,
@@ -571,11 +572,11 @@ function resetRunState(seedVal) {
   player.ty = player.y;
   player.vx = 0;
   player.vy = 0;
-  player.hp = 3;
-  player.maxHp = 3;
-  player.invuln = 45;
+  player.hp = 5;
+  player.maxHp = 5;
+  player.invuln = 90;
   player.weaponLv = 1;
-  player.shield = false;
+  player.shield = true;
   player.rapidTimer = 0;
   player.magnetTimer = 0;
   player.x2Timer = 0;
@@ -638,19 +639,19 @@ function firePlayerWeapons() {
   const lv = player.weaponLv;
 
   if (lv === 1) {
-    bullets.push({ x, y, vx: 0, vy: -11.5, r: 3.6, dmg: 1, color: col });
+    bullets.push({ x, y, vx: 0, vy: -12.4, r: 4.5, dmg: 1.35, color: col });
   } else if (lv === 2) {
-    bullets.push({ x: x - 9, y: y + 3, vx: 0, vy: -11.8, r: 3.5, dmg: 1, color: col });
-    bullets.push({ x: x + 9, y: y + 3, vx: 0, vy: -11.8, r: 3.5, dmg: 1, color: col });
+    bullets.push({ x: x - 9, y: y + 3, vx: 0, vy: -12.6, r: 4.1, dmg: 1.15, color: col });
+    bullets.push({ x: x + 9, y: y + 3, vx: 0, vy: -12.6, r: 4.1, dmg: 1.15, color: col });
   } else if (lv === 3) {
-    bullets.push({ x, y: y - 2, vx: 0, vy: -12.2, r: 4.0, dmg: 1.25, color: col });
-    bullets.push({ x: x - 11, y: y + 4, vx: -1.35, vy: -11.5, r: 3.4, dmg: 1, color: col });
-    bullets.push({ x: x + 11, y: y + 4, vx:  1.35, vy: -11.5, r: 3.4, dmg: 1, color: col });
+    bullets.push({ x, y: y - 2, vx: 0, vy: -13.0, r: 4.5, dmg: 1.4, color: col });
+    bullets.push({ x: x - 11, y: y + 4, vx: -1.35, vy: -12.2, r: 3.9, dmg: 1.1, color: col });
+    bullets.push({ x: x + 11, y: y + 4, vx:  1.35, vy: -12.2, r: 3.9, dmg: 1.1, color: col });
   } else {
-    bullets.push({ x: x - 6, y: y - 2, vx: 0, vy: -12.6, r: 3.8, dmg: 1.2, color: col });
-    bullets.push({ x: x + 6, y: y - 2, vx: 0, vy: -12.6, r: 3.8, dmg: 1.2, color: col });
-    bullets.push({ x: x - 15, y: y + 5, vx: -2.1, vy: -11.4, r: 3.4, dmg: 1.0, color: '#ffe600' });
-    bullets.push({ x: x + 15, y: y + 5, vx:  2.1, vy: -11.4, r: 3.4, dmg: 1.0, color: '#ffe600' });
+    bullets.push({ x: x - 6, y: y - 2, vx: 0, vy: -13.2, r: 4.3, dmg: 1.35, color: col });
+    bullets.push({ x: x + 6, y: y - 2, vx: 0, vy: -13.2, r: 4.3, dmg: 1.35, color: col });
+    bullets.push({ x: x - 15, y: y + 5, vx: -2.0, vy: -12.0, r: 3.8, dmg: 1.1, color: '#ffe600' });
+    bullets.push({ x: x + 15, y: y + 5, vx:  2.0, vy: -12.0, r: 3.8, dmg: 1.1, color: '#ffe600' });
   }
   sfx.laser(lv);
 }
@@ -681,7 +682,7 @@ function triggerEMP() {
   // Ekrandaki tüm düşmanlara ağır EMP hasarı uygula
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    e.hp -= 8;
+    e.hp -= 10;
     if (e.hp <= 0) {
       onEnemyKilled(e, i);
     } else {
@@ -691,7 +692,7 @@ function triggerEMP() {
 
   // Boss varsa kalkanını sars!
   if (boss) {
-    boss.hp -= 16;
+    boss.hp -= 18;
     spawnExplosion(boss.x, boss.y, '#00e5ff', 18, 1.2);
     if (boss.hp <= 0) onBossKilled();
   }
@@ -701,31 +702,32 @@ function triggerEMP() {
 }
 
 // ---------- Deterministik Dalga & Boss Üretimi ----------
-const DROP_KINDS = ['weapon', 'shield', 'rapid', 'magnet', 'x2'];
+const DROP_KINDS = ['weapon', 'shield', 'heal', 'rapid', 'magnet', 'x2'];
 
 function spawnDeterministicWaveStep() {
   const df = DIFFICULTIES[currentDiff] || DIFFICULTIES.normal;
-  // Boss sahnedeyken küçük düşman akışını seyrelt
+  // İlk dalgada ısınma aralığı daha ferah; Boss sahnedeyken küçük düşman akışı çok seyrek
+  const warmupExtra = spawnsCount < 8 ? 14 : (spawnsCount < 16 ? 6 : 0);
   const interval = boss
-    ? Math.round(df.spawnInt * 2.5)
-    : Math.max(18, Math.round(df.spawnInt - Math.min(14, (wave - 1) * 2)));
+    ? Math.round(df.spawnInt * 3.0)
+    : Math.max(26, Math.round(df.spawnInt + warmupExtra - Math.min(12, (wave - 1) * 2)));
 
   if (runFrames % interval !== 0) return;
 
   spawnsCount++;
 
-  // Her 24 doğuşta bir (ve sahnede Boss yokken) Mega Dreadnought Boss indir!
-  if (!boss && spawnsCount % 24 === 0) {
-    const bossWave = Math.floor(spawnsCount / 24);
-    const maxHp = Math.round((46 + bossWave * 22) * df.hpMul);
+  // Her 28 doğuşta bir (ve sahnede Boss yokken) Mega Dreadnought Boss indir!
+  if (!boss && spawnsCount % 28 === 0) {
+    const bossWave = Math.floor(spawnsCount / 28);
+    const maxHp = Math.round((38 + bossWave * 18) * df.hpMul);
     boss = {
       x: VIRT_W * 0.5,
       y: -55,
-      vx: 1.75 * df.enemySpd,
+      vx: 1.45 * df.enemySpd,
       r: 40,
       hp: maxHp,
       maxHp,
-      fireCd: 50,
+      fireCd: 72,
       phase: 0,
       rot: 0,
       waveNum: bossWave
@@ -741,42 +743,51 @@ function spawnDeterministicWaveStep() {
   const rDrop = waveRng();
   const rKind = waveRng();
 
+  // Kademeli dalga açılışı: oyunun başında aniden mermi yağmuru veya kamikaze gelmez!
   let type = 'scout';
-  if (rType < 0.24) type = 'meteor';
-  else if (rType < 0.54) type = 'scout';
-  else if (rType < 0.76) type = 'shooter';
-  else if (rType < 0.90) type = 'kamikaze';
-  else type = 'tank';
+  if (spawnsCount <= 8) {
+    type = rType < 0.45 ? 'meteor' : 'scout';
+  } else if (spawnsCount <= 16) {
+    if (rType < 0.34) type = 'meteor';
+    else if (rType < 0.74) type = 'scout';
+    else type = 'shooter';
+  } else {
+    if (rType < 0.26) type = 'meteor';
+    else if (rType < 0.58) type = 'scout';
+    else if (rType < 0.78) type = 'shooter';
+    else if (rType < 0.90) type = 'kamikaze';
+    else type = 'tank';
+  }
 
-  const margin = 34;
+  const margin = 36;
   const x = margin + rX * (VIRT_W - margin * 2);
-  const spdMul = df.enemySpd * (1 + Math.min(0.45, (wave - 1) * 0.05));
-  const hpMul = df.hpMul * (1 + Math.min(0.8, (wave - 1) * 0.10));
+  const spdMul = df.enemySpd * (1 + Math.min(0.35, (wave - 1) * 0.04));
+  const hpMul = df.hpMul * (1 + Math.min(0.65, (wave - 1) * 0.08));
 
   let cfg;
   switch (type) {
     case 'meteor':
-      cfg = { r: 17, hp: Math.max(2, Math.round(2.4 * hpMul)), vx: (rDrop - 0.5) * 1.3, vy: 2.3 * spdMul, color: '#a89f91', pts: 12 };
+      cfg = { r: 16, hp: Math.max(1.5, Math.round(2.0 * hpMul)), vx: (rDrop - 0.5) * 1.0, vy: 1.85 * spdMul, color: '#a89f91', pts: 12 };
       break;
     case 'scout':
-      cfg = { r: 14, hp: Math.max(1, Math.round(1.6 * hpMul)), vx: 0, vy: 2.8 * spdMul, color: '#00f5d4', pts: 15 };
+      cfg = { r: 14, hp: Math.max(1, Math.round(1.3 * hpMul)), vx: 0, vy: 2.15 * spdMul, color: '#00f5d4', pts: 15 };
       break;
     case 'shooter':
-      cfg = { r: 16, hp: Math.max(2, Math.round(2.8 * hpMul)), vx: 0, vy: 1.85 * spdMul, color: '#ff3366', pts: 24 };
+      cfg = { r: 16, hp: Math.max(2, Math.round(2.3 * hpMul)), vx: 0, vy: 1.50 * spdMul, color: '#ff3366', pts: 24 };
       break;
     case 'kamikaze':
-      cfg = { r: 13, hp: Math.max(1, Math.round(1.5 * hpMul)), vx: 0, vy: 3.3 * spdMul, color: '#ff9e00', pts: 22 };
+      cfg = { r: 13, hp: Math.max(1, Math.round(1.2 * hpMul)), vx: 0, vy: 2.45 * spdMul, color: '#ff9e00', pts: 22 };
       break;
     default: // tank
-      cfg = { r: 22, hp: Math.max(5, Math.round(6.0 * hpMul)), vx: 0, vy: 1.25 * spdMul, color: '#b5179e', pts: 40 };
+      cfg = { r: 21, hp: Math.max(4, Math.round(4.6 * hpMul)), vx: 0, vy: 1.05 * spdMul, color: '#b5179e', pts: 40 };
       break;
   }
 
-  // Deterministik ganimet (altın veya güçlendirme) zarları doğuşta kilitlenir!
+  // Deterministik ganimet (%26 güçlendirme/can/kalkan + %32 altın = %58 düşme oranı!)
   let dropType = null;
-  if (rDrop < 0.16) {
+  if (rDrop < 0.26) {
     dropType = DROP_KINDS[Math.floor(rKind * DROP_KINDS.length) % DROP_KINDS.length];
-  } else if (rDrop < 0.48) {
+  } else if (rDrop < 0.58) {
     dropType = 'coin';
   }
 
@@ -790,7 +801,7 @@ function spawnDeterministicWaveStep() {
     hp: cfg.hp,
     maxHp: cfg.hp,
     rot: rX * Math.PI * 2,
-    fireCd: Math.round((46 + rKind * 35) / df.fireRateMul),
+    fireCd: Math.round((64 + rKind * 42) / df.fireRateMul),
     phase: rX * Math.PI * 2,
     color: cfg.color,
     pts: cfg.pts,
@@ -816,7 +827,7 @@ function addScorePoints(basePts, vx, vy) {
 function onEnemyKilled(e, idx) {
   enemies.splice(idx, 1);
   runKills++;
-  empCharge = Math.min(100, empCharge + (e.type === 'tank' ? 14 : 7));
+  empCharge = Math.min(100, empCharge + (e.type === 'tank' ? 16 : 9));
   updateEmpUI();
 
   sfx.boom(e.type === 'tank');
@@ -829,11 +840,24 @@ function onEnemyKilled(e, idx) {
       x: e.x,
       y: e.y,
       vx: ( (e.phase % 1) - 0.5 ) * 0.8,
-      vy: 1.55,
+      vy: 1.45,
       kind: e.dropType,
-      r: 12,
+      r: 13,
       bob: 0
     });
+  }
+}
+
+function clearNearbyThreats(radius) {
+  for (let i = eBullets.length - 1; i >= 0; i--) {
+    const b = eBullets[i];
+    if (Math.hypot(b.x - player.x, b.y - player.y) <= radius) {
+      particles.push({
+        x: b.x, y: b.y, vx: (Math.random() - 0.5) * 2.4, vy: (Math.random() - 0.5) * 2.4,
+        r: 2.2, color: '#00e5ff', life: 12, maxLife: 12
+      });
+      eBullets.splice(i, 1);
+    }
   }
 }
 
@@ -845,6 +869,15 @@ function onBossKilled() {
   runBosses++;
   wave = bw + 1;
   if (wave > SP.bestWave) SP.bestWave = wave;
+
+  // Boss yıkıldığında kalan mermileri temizle + 1 Can onar + EMP doldur!
+  eBullets.length = 0;
+  if (player.hp < player.maxHp) {
+    player.hp++;
+  } else {
+    player.shield = true;
+  }
+  updateHpUI();
 
   empCharge = 100;
   updateEmpUI();
@@ -860,12 +893,12 @@ function onBossKilled() {
 
   // Boss 3 altın + 1 silah yükseltmesi düşürür
   for (let i = -1; i <= 1; i++) {
-    pickups.push({ x: bx + i * 24, y: by, vx: i * 0.8, vy: 1.5, kind: 'coin', r: 12, bob: i });
+    pickups.push({ x: bx + i * 24, y: by, vx: i * 0.8, vy: 1.4, kind: 'coin', r: 12, bob: i });
   }
-  pickups.push({ x: bx, y: by - 14, vx: 0, vy: 1.3, kind: 'weapon', r: 13, bob: 0 });
+  pickups.push({ x: bx, y: by - 14, vx: 0, vy: 1.25, kind: 'weapon', r: 13, bob: 0 });
 
   addScorePoints(200 + bw * 50, bx, by);
-  addPopup(VIRT_W * 0.5, VIRT_H * 0.34, `🏆 BOSS YIKILDI! DALGA ${wave}`, '#00f5d4');
+  addPopup(VIRT_W * 0.5, VIRT_H * 0.34, `🏆 BOSS YIKILDI! +❤️ DALGA ${wave}`, '#00f5d4');
 }
 
 function applyPickup(p) {
@@ -898,6 +931,22 @@ function applyPickup(p) {
       updateHpUI();
       addPopup(p.x, p.y, '🛡️ Kalkan Aktif!', info.color);
       break;
+    case 'heal':
+      if (player.hp < player.maxHp) {
+        player.hp++;
+        updateHpUI();
+        addPopup(p.x, p.y, '❤️ +1 Can Onarıldı!', info.color);
+      } else if (!player.shield) {
+        player.shield = true;
+        updateHpUI();
+        addPopup(p.x, p.y, '🛡️ Tam Can → Kalkan!', '#00e5ff');
+      } else {
+        score += 40;
+        updateScoreUI();
+        addPopup(p.x, p.y, '❤️ TAM ZIRH +40', info.color);
+        if (MP.connected) mpOnScore();
+      }
+      break;
     case 'rapid':
       player.rapidTimer = info.dur;
       addPopup(p.x, p.y, '⚡ Seri Ateş!', info.color);
@@ -919,24 +968,26 @@ function damagePlayer() {
 
   if (player.shield) {
     player.shield = false;
-    player.invuln = 65;
+    player.invuln = 95;
+    clearNearbyThreats(145);
     sfx.shield();
-    spawnShock(player.x, player.y, '#00e5ff', 68, 20);
+    spawnShock(player.x, player.y, '#00e5ff', 95, 22);
     addPopup(player.x, player.y - 20, '🛡️ Kalkan Korudu!', '#00e5ff');
     updateHpUI();
     return;
   }
 
   player.hp--;
-  player.invuln = 80;
-  if (player.weaponLv > 1) player.weaponLv--;
+  player.invuln = 130;
+  clearNearbyThreats(170);
   combo = 0;
   comboTimer = 0;
-  shakeT = 0.75;
+  shakeT = 0.65;
   flashColor = '#ff3366';
-  flashAlpha = 0.42;
+  flashAlpha = 0.36;
   sfx.hurt();
   spawnExplosion(player.x, player.y, '#ff4d4d', 16, 1.0);
+  spawnShock(player.x, player.y, '#ff4d6d', 110, 22);
   updateHpUI();
   updateScoreUI();
   updatePowerBadgesUI();
@@ -1174,7 +1225,7 @@ function stepWorld() {
   // EMP pasif şarj + zamanlayıcılar
   if (!MP.spectating) {
     if (empCharge < 100) {
-      empCharge = Math.min(100, empCharge + 0.055);
+      empCharge = Math.min(100, empCharge + 0.09);
       if (runFrames % 12 === 0) updateEmpUI();
     }
     if (player.invuln > 0) player.invuln--;
@@ -1208,8 +1259,8 @@ function stepWorld() {
     if (player.fireCd > 0) player.fireCd--;
     if (player.fireCd <= 0) {
       firePlayerWeapons();
-      const baseCd = player.weaponLv >= 4 ? 10 : 12;
-      player.fireCd = player.rapidTimer > 0 ? Math.max(5, Math.round(baseCd * 0.55)) : baseCd;
+      const baseCd = player.weaponLv >= 4 ? 8 : 9;
+      player.fireCd = player.rapidTimer > 0 ? Math.max(4, Math.round(baseCd * 0.55)) : baseCd;
     }
   } else if (MP.specEndFrames > 0) {
     MP.specEndFrames--;
@@ -1250,30 +1301,30 @@ function stepWorld() {
       e.x += Math.sin(e.phase * 1.4) * 1.65;
       e.y += e.vy;
     } else if (e.type === 'shooter') {
-      e.x += Math.sin(e.phase) * 1.1;
+      e.x += Math.sin(e.phase) * 1.0;
       e.y += e.vy;
       e.fireCd--;
-      if (e.fireCd <= 0 && e.y > 24 && e.y < VIRT_H * 0.68) {
+      if (e.fireCd <= 0 && e.y > 28 && e.y < VIRT_H * 0.62) {
         const ang = Math.atan2(targetY - e.y, targetX - e.x);
-        const bsp = 4.4 * df.bulletSpd;
-        eBullets.push({ x: e.x, y: e.y + 12, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.2, color: '#ff3366' });
-        e.fireCd = Math.round(78 / df.fireRateMul);
+        const bsp = 3.4 * df.bulletSpd;
+        eBullets.push({ x: e.x, y: e.y + 12, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.0, color: '#ff3366' });
+        e.fireCd = Math.round(98 / df.fireRateMul);
       }
     } else if (e.type === 'kamikaze') {
       const dx = targetX - e.x;
-      e.x += Math.max(-2.1, Math.min(2.1, dx * 0.032));
+      e.x += Math.max(-1.30, Math.min(1.30, dx * 0.024));
       e.y += e.vy;
     } else { // tank
-      e.x += Math.sin(e.phase * 0.7) * 0.7;
+      e.x += Math.sin(e.phase * 0.7) * 0.65;
       e.y += e.vy;
       e.fireCd--;
-      if (e.fireCd <= 0 && e.y > 20 && e.y < VIRT_H * 0.65) {
-        const bsp = 3.9 * df.bulletSpd;
+      if (e.fireCd <= 0 && e.y > 24 && e.y < VIRT_H * 0.60) {
+        const bsp = 3.1 * df.bulletSpd;
         for (let k = -1; k <= 1; k++) {
           const ang = Math.PI * 0.5 + k * 0.28;
-          eBullets.push({ x: e.x + k * 8, y: e.y + 16, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.5, color: '#ff5de8' });
+          eBullets.push({ x: e.x + k * 8, y: e.y + 16, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.2, color: '#ff5de8' });
         }
-        e.fireCd = Math.round(92 / df.fireRateMul);
+        e.fireCd = Math.round(115 / df.fireRateMul);
       }
     }
 
@@ -1283,10 +1334,10 @@ function stepWorld() {
       continue;
     }
 
-    // Oyuncu çarpışma testi
+    // Oyuncu çarpışma testi (yalnızca kokpit çekirdeği isabeti)
     if (!MP.spectating && state === STATE.PLAYING) {
       const dist = Math.hypot(e.x - player.x, e.y - player.y);
-      if (dist < e.r + player.r - 4) {
+      if (dist < e.r + player.r - 3) {
         enemies.splice(i, 1);
         spawnExplosion(e.x, e.y, e.color, 10, 0.9);
         damagePlayer();
@@ -1299,7 +1350,7 @@ function stepWorld() {
   if (boss) {
     boss.rot += 0.03;
     if (boss.y < 96) {
-      boss.y += 1.6;
+      boss.y += 1.5;
     } else {
       boss.x += boss.vx;
       if (boss.x < 62) { boss.x = 62; boss.vx = Math.abs(boss.vx); }
@@ -1310,28 +1361,28 @@ function stepWorld() {
     boss.fireCd--;
     if (boss.fireCd <= 0 && boss.y >= 85) {
       boss.phase = (boss.phase + 1) % 3;
-      const bsp = 4.3 * df.bulletSpd;
+      const bsp = 3.3 * df.bulletSpd;
       if (boss.phase === 0) {
         // 5'li yelpaze yaylım ateşi
         for (let k = -2; k <= 2; k++) {
-          const ang = Math.PI * 0.5 + k * 0.22;
-          eBullets.push({ x: boss.x + k * 10, y: boss.y + 28, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.8, color: '#ff3366' });
+          const ang = Math.PI * 0.5 + k * 0.25;
+          eBullets.push({ x: boss.x + k * 10, y: boss.y + 28, vx: Math.cos(ang) * bsp, vy: Math.sin(ang) * bsp, r: 4.5, color: '#ff3366' });
         }
       } else if (boss.phase === 1) {
         // Oyuncuya hedefli çift plazma topu
         const ang = Math.atan2(targetY - boss.y, targetX - boss.x);
-        eBullets.push({ x: boss.x - 22, y: boss.y + 22, vx: Math.cos(ang) * (bsp + 0.8), vy: Math.sin(ang) * (bsp + 0.8), r: 5.2, color: '#ff9e00' });
-        eBullets.push({ x: boss.x + 22, y: boss.y + 22, vx: Math.cos(ang) * (bsp + 0.8), vy: Math.sin(ang) * (bsp + 0.8), r: 5.2, color: '#ff9e00' });
+        eBullets.push({ x: boss.x - 22, y: boss.y + 22, vx: Math.cos(ang) * (bsp + 0.5), vy: Math.sin(ang) * (bsp + 0.5), r: 4.8, color: '#ff9e00' });
+        eBullets.push({ x: boss.x + 22, y: boss.y + 22, vx: Math.cos(ang) * (bsp + 0.5), vy: Math.sin(ang) * (bsp + 0.5), r: 4.8, color: '#ff9e00' });
       } else {
         // Döner halka mermileri
         for (let k = 0; k < 6; k++) {
           const ang = boss.rot + (Math.PI * 2 * k) / 6;
           if (Math.sin(ang) > -0.15) {
-            eBullets.push({ x: boss.x, y: boss.y + 14, vx: Math.cos(ang) * (bsp * 0.9), vy: Math.sin(ang) * (bsp * 0.9), r: 4.4, color: '#ff5de8' });
+            eBullets.push({ x: boss.x, y: boss.y + 14, vx: Math.cos(ang) * (bsp * 0.85), vy: Math.sin(ang) * (bsp * 0.85), r: 4.2, color: '#ff5de8' });
           }
         }
       }
-      boss.fireCd = Math.max(32, Math.round((64 - Math.min(18, boss.waveNum * 4)) / df.fireRateMul));
+      boss.fireCd = Math.max(52, Math.round((86 - Math.min(18, boss.waveNum * 4)) / df.fireRateMul));
     }
 
     if (!MP.spectating && state === STATE.PLAYING) {
@@ -1400,7 +1451,7 @@ function stepWorld() {
       continue;
     }
     if (!MP.spectating && state === STATE.PLAYING) {
-      if (Math.hypot(eb.x - player.x, eb.y - player.y) < eb.r + player.r - 5) {
+      if (Math.hypot(eb.x - player.x, eb.y - player.y) < eb.r + player.r - 3) {
         eBullets.splice(i, 1);
         damagePlayer();
         if (state !== STATE.PLAYING && !MP.spectating) return;
@@ -1416,22 +1467,22 @@ function stepWorld() {
       const dx = player.x - p.x;
       const dy = player.y - p.y;
       const d = Math.hypot(dx, dy) || 1;
-      if (d < 190) {
-        p.vx += (dx / d) * 0.75;
-        p.vy += (dy / d) * 0.75;
+      if (d < 220) {
+        p.vx += (dx / d) * 0.85;
+        p.vy += (dy / d) * 0.85;
       }
     }
     p.x += p.vx;
     p.y += p.vy;
     p.vx *= 0.96;
-    if (p.vy < 1.5 && (!player.magnetTimer || MP.spectating)) p.vy += 0.06;
+    if (p.vy < 1.4 && (!player.magnetTimer || MP.spectating)) p.vy += 0.05;
 
     if (p.y > VIRT_H + 26) {
       pickups.splice(i, 1);
       continue;
     }
     if (!MP.spectating && state === STATE.PLAYING) {
-      if (Math.hypot(p.x - player.x, p.y - player.y) < p.r + player.r + 6) {
+      if (Math.hypot(p.x - player.x, p.y - player.y) < p.r + 18) {
         pickups.splice(i, 1);
         applyPickup(p);
       }

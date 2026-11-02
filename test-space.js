@@ -78,30 +78,42 @@ assert.ok(player.y < startY - 20, 'Trackpad yukari suruklemede gemi Y azalmali')
 console.log('2) 2B TRACKPAD SURUKLEME & OTOMATIK ATES: OK — mermi sayisi =', bullets.length);
 assert.ok(bullets.length > 0, 'Otomatik lazer atesi mermi uretmeli');
 
-// 3) 5 Guclendirme + Kalkan + EMP Bomba testi
+// 3) 6 Guclendirme + Baslangic Kalkani + Can Tamiri + Darbe Mermi Temizligi testi
+assert.strictEqual(player.hp, 5, '5 can ile baslamali');
+assert.strictEqual(player.shield, true, 'Baslangicta enerji kalkani aktif olmali');
+
 applyPickup({ kind: 'weapon', x: player.x, y: player.y });
 applyPickup({ kind: 'weapon', x: player.x, y: player.y });
 applyPickup({ kind: 'weapon', x: player.x, y: player.y });
 assert.strictEqual(player.weaponLv, 4, 'Silah seviyesi Lv.4 olmali');
-applyPickup({ kind: 'shield', x: player.x, y: player.y });
 applyPickup({ kind: 'rapid', x: player.x, y: player.y });
 applyPickup({ kind: 'magnet', x: player.x, y: player.y });
 applyPickup({ kind: 'x2', x: player.x, y: player.y });
-assert.strictEqual(player.shield, true, 'Kalkan aktif olmali');
 
+// Yakinda ikinci bir mermi varken darbe alinca kalkan kirilmali VE etraftaki mermiler silinmeli!
+eBullets.push({ x: player.x + 30, y: player.y - 20, vx: 0, vy: 3, r: 4, color: '#ff3366' });
 player.invuln = 0;
 damagePlayer();
 assert.strictEqual(player.shield, false, 'Hasar gelince kalkan kirilmali');
-assert.strictEqual(player.hp, 3, 'Kalkan varken can dusmemeli');
-console.log('3) 5 GUCLENDIRME & KALKAN KORUMASI: OK');
+assert.strictEqual(player.hp, 5, 'Kalkan varken can dusmemeli');
+assert.strictEqual(eBullets.length, 0, 'Darbe aninda yakindaki dusman mermileri temizlenmeli');
+
+// Govde hasari alinca silah seviyesi dusmemeli, ❤️ Tamir Kiti cani geri doldurmali!
+player.invuln = 0;
+damagePlayer();
+assert.strictEqual(player.hp, 4, 'Kalkansiz darbede can 4e inmeli');
+assert.strictEqual(player.weaponLv, 4, 'Hasar alinca silah seviyesi dusmemeli');
+applyPickup({ kind: 'heal', x: player.x, y: player.y });
+assert.strictEqual(player.hp, 5, 'Tamir kiti +1 can onarmali');
+console.log('3) 5 CAN + BASLANGIC KALKANI + TAMIR KITI & DARBE KORUMASI: OK');
 
 // 4) Boss dogusu, EMP Super Bomba ve Boss yikimi
 eBullets.push({ x: 120, y: 200, vx: 0, vy: 4, r: 4, color: '#ff3366' });
 enemies.push({ type: 'scout', x: 180, y: 180, vx: 0, vy: 2, r: 14, hp: 2, maxHp: 2, rot: 0, fireCd: 30, phase: 0, color: '#00f5d4', pts: 15, dropType: 'coin' });
-spawnsCount = 23;
+spawnsCount = 27;
 runFrames = DIFFICULTIES[currentDiff].spawnInt - 1;
-stepWorld(); // spawnsCount = 24 -> Boss dogar!
-assert.ok(boss !== null, '24. dogusta Dreadnought Boss sahneye inmeli');
+stepWorld(); // spawnsCount = 28 -> Boss dogar!
+assert.ok(boss !== null, '28. dogusta Dreadnought Boss sahneye inmeli');
 
 empCharge = 100;
 const bossHpBefore = boss.hp;
