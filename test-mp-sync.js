@@ -97,7 +97,7 @@ function createClientSandbox(scriptFile, width, height, MockPeer, customSessionS
     moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop, closePath: noop,
     fill: noop, stroke: noop, fillText: noop, strokeText: noop,
     save: noop, restore: noop, translate: noop, rotate: noop, scale: noop,
-    setLineDash: noop, measureText: () => ({ width: 12 })
+    roundRect: noop, setLineDash: noop, measureText: () => ({ width: 12 })
   };
 
   const makeEl = () => {
@@ -829,6 +829,69 @@ async function flushMicrotasks() {
     assert.strictEqual(guest.eval('MP.seriesMe'), 1, 'Guest seride kendi galibiyetini yazmalı');
 
     console.log('✅ UZAY AVCISI ÇEVRİMİÇİ 1v1 EŞZAMANLI DALGA & CANLI İZLEYİCİ TESTİ GEÇTİ!');
+  }
+
+  // =========================================================================
+  // 12) TUĞLA KIRICI: 1v1 EŞZAMANLI DİZİLİM & CANLI İZLEYİCİ
+  // =========================================================================
+  {
+    const MockPeer = createPeerBroker();
+    const hostSess = {};
+    const guestSess = {};
+
+    const host = createClientSandbox('brick.js', 420, 700, MockPeer, hostSess);
+    const guest = createClientSandbox('brick.js', 360, 640, MockPeer, guestSess);
+
+    host.eval('mpHost()');
+    await flushMicrotasks();
+    const code = host.eval('MP.roomCode');
+
+    guest.sandbox.document.getElementById('mp-code-input').value = code;
+    guest.eval('mpJoinConfirm()');
+    await flushMicrotasks();
+
+    assert.strictEqual(host.eval('MP.connected && MP.inLobby'), true, 'Tuğla Kırıcı Host lobiye girmeli');
+    assert.strictEqual(guest.eval('MP.connected && MP.inLobby'), true, 'Tuğla Kırıcı Guest lobiye girmeli');
+
+    // Host zorluğu "hard" yapsın
+    host.eval(`
+      MP.lobbyDiff = 'hard';
+      mpSend({ t: 'lobby_cfg', diff: 'hard', name: MP.myName, paddle: BK.paddle });
+    `);
+    await flushMicrotasks();
+    assert.strictEqual(guest.eval('MP.lobbyDiff'), 'hard', 'Guest zorluk ayarını almalı');
+
+    bothReady(host, guest);
+    // Geri sayım bittikten sonra iki tarafta da aynı tohumla aynı tuğlaların dizildiğini test edelim
+    for (let i = 0; i < 185; i++) { host.stepFrame(); guest.stepFrame(); }
+    for (let i = 0; i < 20; i++) { host.stepFrame(); guest.stepFrame(); }
+
+    const hostBricks = host.eval('bricks.map(b => b.color + ":" + Math.round(b.x)).join(",")');
+    const guestBricks = guest.eval('bricks.map(b => b.color + ":" + Math.round(b.x)).join(",")');
+    assert.ok(hostBricks.length > 0, 'Tuğlalar dizilmiş olmalı');
+    assert.strictEqual(hostBricks, guestBricks, 'Farklı ekran boyutlarında (420x700 vs 360x640) tuğla renkleri ve sanal X konumları %100 birebir eşit olmalı');
+
+    // Host tuğla kırıp skor alsın
+    host.eval('score = 90; mpOnScore();');
+    await flushMicrotasks();
+    assert.strictEqual(guest.eval('MP.oppScore'), 90, 'Guest Host skorunu anında görmeli');
+
+    // Host tüm canlarını kaybedip elensin -> Canlı İzleyici moduna geçmeli
+    host.eval('paddle.hp = 1; balls.length = 0; handleBallLost();');
+    await flushMicrotasks();
+    assert.strictEqual(host.eval('MP.spectating'), true, 'Erken elenen Tuğla Kırıcı oyuncusu Canlı İzleyici moduna geçmeli');
+    assert.strictEqual(host.eval('mpGameoverScreen.classList.contains("hidden")'), true, 'Rakip oynarken maç sonu ekranı erken açılmamalı');
+
+    // Guest de elenince her iki tarafta maç sonu ekranı açılmalı
+    guest.eval('score = 60; paddle.hp = 1; balls.length = 0; handleBallLost();');
+    await flushMicrotasks();
+    for (let i = 0; i < 45; i++) { host.stepFrame(); guest.stepFrame(); }
+
+    assert.strictEqual(host.eval('MP.spectating'), false, 'Rakip de elenince izleyici modu kapanmalı');
+    assert.strictEqual(host.eval('MP.seriesMe'), 1, 'Host seride kendi galibiyetini yazmalı (90 > 60)');
+    assert.strictEqual(guest.eval('MP.seriesOpp'), 1, 'Guest seride rakip galibiyetini yazmalı');
+
+    console.log('✅ TUĞLA KIRICI ÇEVRİMİÇİ 1v1 EŞZAMANLI DÜELLO & CANLI İZLEYİCİ TESTİ GEÇTİ!');
   }
 
   console.log('\n🎉 TÜM OYUNLARIN ÇEVRİMİÇİ (ONLINE) SENKRONİZASYON TESTLERİ KUSURSUZ GEÇTİ!');
